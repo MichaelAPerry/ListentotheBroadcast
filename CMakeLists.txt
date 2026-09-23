@@ -81,6 +81,13 @@ if(LTB_BUILD_PLUGIN)
             juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 
+    if(MSVC)
+        # Symbols (.pdb) for readable crash reports; optimisation is unchanged.
+        target_compile_options(ListenToTheBroadcast PRIVATE /Zi)
+        target_compile_options(ltb_core PRIVATE /Zi)
+        target_link_options(ListenToTheBroadcast_VST3 PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    endif()
+
     if(LTB_BUILD_TESTS)
         # Drives the real processor offline: fake traffic in, audio + MIDI out.
         juce_add_console_app(ltb_plugin_tests PRODUCT_NAME "ltb_plugin_tests")

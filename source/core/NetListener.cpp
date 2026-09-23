@@ -1,8 +1,8 @@
 #include "NetListener.h"
 
 #include <chrono>
+#include <cctype>
 #include <cstring>
-#include <regex>
 
 #if defined(_WIN32)
  #ifndef NOMINMAX
@@ -153,10 +153,17 @@ std::string describePacket (uint8_t kind, const uint8_t* data, size_t size, uint
         {
             const bool answer = (data[2] & 0x80) != 0;
             auto name = readDnsName (data, size, 12);
-            static const std::regex service (R"((_[\w-]+\._(?:tcp|udp)))");
-            std::smatch m;
-            if (std::regex_search (name, m, service))
-                name = m[1];
+            // Prefer the DNS-SD service type, e.g. "_airplay._tcp" from "Living Room._airplay._tcp.local".
+            for (const char* proto : { "._tcp", "._udp" })
+                if (const auto end = name.find (proto); end != std::string::npos)
+                {
+                    const auto start = name.rfind ('_', end > 0 ? end - 1 : 0);
+                    if (start != std::string::npos && (start == 0 || name[start - 1] == '.'))
+                    {
+                        name = name.substr (start, end + 5 - start);
+                        break;
+                    }
+                }
             return (answer ? "answer " : "query ") + name.substr (0, 60);
         }
         if (kind == kSsdp || kind == kWsd)
@@ -170,10 +177,24 @@ std::string describePacket (uint8_t kind, const uint8_t* data, size_t size, uint
                 return "";
             }
             std::string first = text.substr (0, text.find (' '));
-            static const std::regex target (R"((?:^|\r\n)(?:NT|ST|nt|st):\s*([^\r\n]+))");
-            std::smatch m;
-            if (std::regex_search (text, m, target))
-                first += " " + m[1].str().substr (0, 60);
+            // First "NT:" or "ST:" header (case-insensitive), without regex.
+            for (size_t line = text.find ("\r\n"); line != std::string::npos; line = text.find ("\r\n", line + 2))
+            {
+                const size_t h = line + 2;
+                if (h + 3 > text.size())
+                    break;
+                const char a = (char) std::toupper ((unsigned char) text[h]);
+                const char b = (char) std::toupper ((unsigned char) text[h + 1]);
+                if ((a == 'N' || a == 'S') && b == 'T' && text[h + 2] == ':')
+                {
+                    size_t v = h + 3;
+                    while (v < text.size() && text[v] == ' ')
+                        ++v;
+                    const auto end = text.find ("\r\n", v);
+                    first += " " + text.substr (v, std::min<size_t> (60, (end == std::string::npos ? text.size() : end) - v));
+                    break;
+                }
+            }
             return first;
         }
         if (kind == kDhcp && size > 240 && data[236] == 0x63 && data[237] == 0x82 && data[238] == 0x53 && data[239] == 0x63)
