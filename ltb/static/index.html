@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listen to the Broadcast</title>
+<style>
+:root {
+  --bg: #0e1116; --panel: #161b22; --line: #262d37; --text: #d7dde5; --muted: #8391a2;
+  --accent: #7cc4ff; --accent2: #b89cff; --warn: #ff8a7a; --ok: #7be0a8;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+.status { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.status b { color: var(--text); font-weight: 600; }
+.beat { display: inline-flex; gap: 4px; vertical-align: middle; }
+.beat i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.beat i.on { background: var(--accent); }
+button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button:hover { border-color: var(--accent); }
+button.danger { border-color: var(--warn); color: var(--warn); margin-left: auto; }
+main { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; padding: 16px 20px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+section.wide { grid-column: 1 / -1; }
+.row { display: grid; grid-template-columns: 120px 1fr 56px; align-items: center; gap: 10px; margin: 8px 0; }
+.row label { color: var(--muted); }
+.row output { text-align: right; font-variant-numeric: tabular-nums; }
+.row select { grid-column: span 2; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+select, input[type=number] { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; font: inherit; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 980px; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td input[type=number] { width: 62px; }
+td select { min-width: 84px; }
+td input[type=range] { min-width: 80px; }
+.proto { white-space: nowrap; }
+.proto small { display: block; color: var(--muted); font-size: 11px; }
+.meter { width: 60px; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
+tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.listen-bad { color: var(--warn); }
+.listen-ok { color: var(--ok); }
+#feed { height: 260px; white-space: pre; overflow-x: hidden; text-overflow: ellipsis; overflow-y: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--muted); }
+#feed div { overflow: hidden; text-overflow: ellipsis; }
+#feed .note { color: var(--accent); }
+#feed .chord { color: var(--accent2); font-weight: 600; }
+#feed .device { color: var(--ok); }
+.hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.cc { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.cc b { color: var(--text); }
+@media (max-width: 520px) {
+  header { padding: 12px 16px; }
+  main { padding: 12px 16px; }
+  .row { grid-template-columns: 96px 1fr 48px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Listen to the Broadcast</h1>
+  <div class="status">
+    <span>bar <b id="st-bar">-</b> <span class="beat" id="st-beat"><i></i><i></i><i></i><i></i></span></span>
+    <span>chord <b id="st-chord">-</b></span>
+    <span>devices <b id="st-devices">0</b></span>
+    <span>notes <b id="st-notes">0</b></span>
+    <span>out <b id="st-out">-</b></span>
+    <span id="st-clock"></span>
+  </div>
+  <button class="danger" id="panic" title="All notes off on every channel">Panic</button>
+</header>
+
+<main>
+  <section>
+    <h2>Beat</h2>
+    <div class="row"><label for="sync">Sync</label>
+      <select id="sync" data-key="sync"><option value="internal">Internal tempo</option><option value="midi_clock">Host MIDI clock</option></select></div>
+    <div class="row"><label for="bpm">Tempo</label><input type="range" id="bpm" data-key="bpm" min="40" max="200" step="0.5"><output data-for="bpm"></output></div>
+    <div class="row"><label for="swing">Swing</label><input type="range" id="swing" data-key="swing" min="0" max="1" step="0.01"><output data-for="swing"></output></div>
+    <div class="row"><label for="max_notes_per_step">Max notes / step</label><input type="range" id="max_notes_per_step" data-key="max_notes_per_step" min="1" max="16" step="1"><output data-for="max_notes_per_step"></output></div>
+    <div class="row"><label for="master_velocity">Master level</label><input type="range" id="master_velocity" data-key="master_velocity" min="0" max="1.5" step="0.01"><output data-for="master_velocity"></output></div>
+    <div class="row"><label for="rate_cc">Traffic → CC</label><input type="range" id="rate_cc" data-key="rate_cc" min="-1" max="127" step="1"><output data-for="rate_cc"></output></div>
+    <p class="hint">Events are held until the next grid slot, so every note lands on the beat. Traffic intensity is sent on each channel as a CC (CC1 = mod wheel by default; −1 = off). Map it to filter cutoff for swells.</p>
+  </section>
+
+  <section>
+    <h2>Harmony</h2>
+    <div class="row"><label for="root">Root</label><select id="root" data-key="root" data-int></select></div>
+    <div class="row"><label for="scale">Scale</label><select id="scale" data-key="scale"></select></div>
+    <div class="row"><label for="base_octave">Octave</label><input type="range" id="base_octave" data-key="base_octave" min="1" max="7" step="1"><output data-for="base_octave"></output></div>
+    <div class="row"><label for="chord_degree">Chord degree</label><input type="range" id="chord_degree" data-key="chord_degree" min="0" max="6" step="1"><output data-for="chord_degree"></output></div>
+    <div class="row"><label for="chord_size">Chord size</label><input type="range" id="chord_size" data-key="chord_size" min="1" max="6" step="1"><output data-for="chord_size"></output></div>
+    <div class="row"><label for="chord_stack">Stacking</label>
+      <select id="chord_stack" data-key="chord_stack" data-int><option value="1">Clusters (seconds)</option><option value="2">Thirds</option><option value="3">Fourths</option><option value="4">Fifths</option></select></div>
+    <div class="row"><label for="chord_spread">Voicing spread</label><input type="range" id="chord_spread" data-key="chord_spread" min="0" max="2" step="1"><output data-for="chord_spread"></output></div>
+    <div class="row"><label for="progression">Progression</label><select id="progression" data-key="progression"></select></div>
+    <div class="row"><label for="change_mode">Change chord</label>
+      <select id="change_mode" data-key="change_mode"><option value="bars">Every N bars</option><option value="new_device">When a new device appears</option></select></div>
+    <div class="row"><label for="change_bars">Bars per chord</label><input type="range" id="change_bars" data-key="change_bars" min="1" max="16" step="1"><output data-for="change_bars"></output></div>
+    <div class="row"><label for="microtones">Microtones</label>
+      <select id="microtones" data-key="microtones"><option value="bend">Pitch bend (true ¼-tones)</option><option value="round">Round to 12-TET</option></select></div>
+    <div class="row"><label for="bend_range">Bend range</label><input type="range" id="bend_range" data-key="bend_range" min="1" max="24" step="1"><output data-for="bend_range"></output></div>
+    <p class="hint">Scales marked ¼ use quarter tones. Melody and bass voices play them with pitch bend, so set each synth's bend range to match. Chords round to the nearest semitone.</p>
+  </section>
+
+  <section class="wide">
+    <h2>Traffic → Sound</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Traffic</th><th>Activity</th><th>On</th><th>Role</th><th>MIDI ch</th><th>Program</th><th>Octave</th>
+          <th>Rhythm</th><th>Length (16ths)</th><th>Velocity</th><th>Max / bar</th><th>Chance</th><th>Hit note</th>
+        </tr></thead>
+        <tbody id="routing"></tbody>
+      </table>
+    </div>
+    <p class="hint">Each traffic type plays on its own MIDI channel. In your host, put one instrument on each channel. <b>Program</b> sends a Program Change (−1 = none) for multi-timbral or GM synths. Roles: <b>note</b> gives each device its own scale degree; <b>chord</b>/<b>pad</b> play the current chord (pads sustain while that traffic is active); <b>bass</b> plays the chord root; <b>hit</b> plays a fixed note for drums.</p>
+  </section>
+
+  <section>
+    <h2>Live feed</h2>
+    <div id="feed"></div>
+  </section>
+
+  <section>
+    <h2>Listeners &amp; host control</h2>
+    <div id="listeners" class="cc"></div>
+    <h2 style="margin-top:16px">MIDI CC → slider (from --clock-in port)</h2>
+    <div id="ccmap" class="cc"></div>
+    <p class="hint">Automate these CCs from your host or a controller to move the sliders during a performance.</p>
+    <p><button id="reset">Reset to defaults</button></p>
+  </section>
+</main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+let meta, settings, dragging = null, pending = {}, timer = null;
+const DIV_LABELS = { 1: "1/16", 2: "1/8", 4: "1/4", 8: "1/2", 16: "1 bar" };
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"];
+
+function post(path, body) {
+  return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+    .then(r => r.json());
+}
+
+// Coalesce slider drags into at most one request per 60 ms.
+function queueUpdate(update) {
+  merge(pending, update);
+  clearTimeout(timer);
+  timer = setTimeout(() => { const u = pending; pending = {}; post("/api/settings", u).then(s => { settings = s; }); }, 60);
+}
+function merge(a, b) {
+  for (const k in b) {
+    if (b[k] && typeof b[k] === "object" && !Array.isArray(b[k])) merge(a[k] = a[k] || {}, b[k]);
+    else a[k] = b[k];
+  }
+}
+
+function fmt(key, v) {
+  if (key === "chord_degree") return ROMAN[v] || v;
+  if (key === "swing" || key === "master_velocity" || key === "probability") return Math.round(v * 100) + "%";
+  if (key === "rate_cc") return v < 0 ? "off" : "CC" + v;
+  if (key === "bend_range") return "±" + v;
+  if (key === "chord_spread") return v ? "+" + v + " oct" : "close";
+  return v;
+}
+
+function parseValue(el) {
+  if (el.type === "checkbox") return el.checked;
+  if (el.type === "range" || el.type === "number" || el.hasAttribute("data-int")) return Number(el.value);
+  return el.value;
+}
+
+function buildStatic() {
+  const root = $("#root");
+  meta.note_names.forEach((n, i) => root.add(new Option(n, i)));
+  const scale = $("#scale");
+  const families = {};
+  meta.scales.forEach(s => (families[s.family] = families[s.family] || []).push(s));
+  for (const [fam, list] of Object.entries(families)) {
+    const g = document.createElement("optgroup"); g.label = fam;
+    list.forEach(s => g.appendChild(new Option(s.name + (s.microtonal ? "  ¼" : ""), s.key)));
+    scale.appendChild(g);
+  }
+  meta.progressions.forEach(p => $("#progression").add(new Option(p, p)));
+
+  const tbody = $("#routing");
+  for (const p of meta.protocols) {
+    const tr = document.createElement("tr");
+    tr.id = "row-" + p.key;
+    const roles = meta.roles.map(r => `<option value="${r}">${r}</option>`).join("");
+    const divs = meta.divisions.map(d => `<option value="${d}">${DIV_LABELS[d]}</option>`).join("");
+    tr.innerHTML = `
+      <td class="proto">${p.label}<small>udp ${p.ports.join(", ")}</small></td>
+      <td><div class="meter"><div></div></div></td>
+      <td><input type="checkbox" data-r="enabled" aria-label="enabled"></td>
+      <td><select data-r="role">${roles}</select></td>
+      <td><input type="number" min="1" max="16" data-r="channel"></td>
+      <td><input type="number" min="-1" max="127" data-r="program"></td>
+      <td><input type="range" min="-3" max="3" step="1" data-r="octave"></td>
+      <td><select data-r="division" data-int>${divs}</select></td>
+      <td><input type="number" min="1" max="256" data-r="length"></td>
+      <td><input type="range" min="1" max="127" step="1" data-r="velocity"></td>
+      <td><input type="number" min="1" max="16" data-r="density"></td>
+      <td><input type="range" min="0" max="1" step="0.05" data-r="probability"></td>
+      <td><input type="number" min="0" max="127" data-r="hit_note"></td>`;
+    tbody.appendChild(tr);
+    tr.querySelectorAll("[data-r]").forEach(el => {
+      el.addEventListener("input", () => {
+        const v = parseValue(el);
+        settings.routing[p.key][el.dataset.r] = v;
+        queueUpdate({ routing: { [p.key]: { [el.dataset.r]: v } } });
+        el.title = fmt(el.dataset.r, v);
+      });
+      el.addEventListener("pointerdown", () => dragging = el);
+    });
+  }
+
+  document.querySelectorAll("[data-key]").forEach(el => {
+    el.addEventListener("input", () => {
+      const v = parseValue(el);
+      settings[el.dataset.key] = v;
+      queueUpdate({ [el.dataset.key]: v });
+      const out = $(`output[data-for="${el.dataset.key}"]`);
+      if (out) out.textContent = fmt(el.dataset.key, v);
+    });
+    el.addEventListener("pointerdown", () => dragging = el);
+  });
+  addEventListener("pointerup", () => dragging = null);
+
+  $("#panic").onclick = () => post("/api/panic");
+  $("#reset").onclick = () => { if (confirm("Reset all settings to defaults?")) post("/api/settings/reset").then(s => { settings = s; render(); }); };
+}
+
+function render() {
+  document.querySelectorAll("[data-key]").forEach(el => {
+    if (el === dragging || el === document.activeElement && el.tagName !== "SELECT") return;
+    const v = settings[el.dataset.key];
+    if (el.type === "checkbox") el.checked = v; else el.value = v;
+    const out = $(`output[data-for="${el.dataset.key}"]`);
+    if (out) out.textContent = fmt(el.dataset.key, v);
+  });
+  for (const [key, r] of Object.entries(settings.routing)) {
+    const tr = $("#row-" + key);
+    if (!tr) continue;
+    tr.querySelectorAll("[data-r]").forEach(el => {
+      if (el === dragging || el === document.activeElement && el.tagName !== "SELECT") return;
+      const v = r[el.dataset.r];
+      if (el.type === "checkbox") el.checked = v; else el.value = v;
+      el.title = fmt(el.dataset.r, v);
+    });
+  }
+  $("#ccmap").innerHTML = Object.entries(settings.cc_map).map(([cc, t]) => `<span><b>CC${cc}</b> → ${t}</span>`).join("");
+}
+
+const feed = $("#feed");
+function log(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls; div.textContent = text;
+  feed.prepend(div);
+  while (feed.childElementCount > 120) feed.lastChild.remove();
+}
+
+function onMessage(m) {
+  if (m.type === "packet") {
+    const tr = $("#row-" + m.kind);
+    if (tr) { tr.classList.add("flash"); setTimeout(() => tr.classList.remove("flash"), 150); }
+    log("", `${m.kind.padEnd(8)} ${m.src.padEnd(15)} ${m.size}B ${m.detail}`);
+  } else if (m.type === "note") {
+    const names = m.notes.map(n => meta.note_names[n % 12] + (Math.floor(n / 12) - 1)).join(" ");
+    log("note", `♪ ch${m.channel} ${m.role.padEnd(5)} ${names}  vel ${m.velocity}${m.count > 1 ? "  ×" + m.count : ""}`);
+  } else if (m.type === "chord") {
+    log("chord", `— bar ${m.bar}: chord → ${m.root} (degree ${ROMAN[m.degree % 7] || m.degree})`);
+  } else if (m.type === "device") {
+    log("device", `+ new device ${m.src} (${m.kind})`);
+  } else if (m.type === "settings") {
+    settings = m.settings; render();
+  } else if (m.type === "state") {
+    const e = m.engine;
+    $("#st-bar").textContent = e.bar;
+    [...$("#st-beat").children].forEach((b, i) => b.classList.toggle("on", i === e.beat - 1 && e.running));
+    $("#st-chord").textContent = e.chord_root;
+    $("#st-devices").textContent = e.devices;
+    $("#st-notes").textContent = e.active_notes;
+    $("#st-out").textContent = m.midi_out;
+    const c = m.clock_in;
+    $("#st-clock").innerHTML = c ? `clock in <b>${c.receiving_clock ? c.bpm + " bpm" : "waiting…"}</b>` : "";
+    for (const [k, v] of Object.entries(e.activity)) {
+      const bar = $(`#row-${k} .meter div`); if (bar) bar.style.width = Math.round(v * 100) + "%";
+    }
+    const L = m.simulating ? [`<span class="listen-ok">simulated traffic</span>`] :
+      Object.entries(m.listeners).map(([k, v]) => `<span class="${v === "ok" ? "listen-ok" : "listen-bad"}"><b>${k}</b> ${v}</span>`);
+    $("#listeners").innerHTML = L.join("");
+  }
+}
+
+Promise.all([fetch("/api/meta").then(r => r.json()), fetch("/api/state").then(r => r.json())]).then(([m, st]) => {
+  meta = m; settings = st.settings;
+  buildStatic(); render();
+  const es = new EventSource("/api/feed");
+  es.onmessage = ev => onMessage(JSON.parse(ev.data));
+});
+</script>
+</body>
+</html>
