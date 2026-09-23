@@ -193,6 +193,37 @@ int main (int argc, char** argv)
     }
 
     {
+        std::printf ("factory presets: every one plays cleanly, and the choice is remembered\n");
+        ListenProcessor p;
+        p.disableNetworkForTesting();
+        p.prepareToPlay (48000.0, 512);
+        CHECK (p.getNumPrograms() == 7);
+        for (int i = 0; i < p.getNumPrograms(); ++i)
+        {
+            p.setCurrentProgram (i);
+            CHECK (p.getCurrentProgram() == i && p.getProgramName (i).isNotEmpty());
+            auto r = run (p, 4.0, 512, nullptr, [&p] (int b) {
+                if (b % 10 == 0)
+                    for (int k = 0; k < kNumKinds; ++k)
+                        p.injectEvent (ev (k, (uint32_t) (b + k)));
+            });
+            std::printf ("  %-14s notes %3d  rms %.3f\n", p.getProgramName (i).toRawUTF8(), r.noteOns, r.rms());
+            CHECK (r.finite && r.rms() > 0.003f && r.rms() < 0.95f);
+        }
+        p.setCurrentProgram (1); // Maqam Rast
+        CHECK ((int) p.state.getRawParameterValue (params::kScale)->load() == 22);
+        juce::MemoryBlock blob;
+        p.getStateInformation (blob);
+        ListenProcessor q;
+        q.disableNetworkForTesting();
+        q.setStateInformation (blob.getData(), (int) blob.getSize());
+        CHECK (q.getCurrentProgram() == 1);
+        p.setCurrentProgram (0); // back to defaults: everything reset
+        CHECK ((int) p.state.getRawParameterValue (params::kScale)->load() == 1);
+        CHECK (p.state.getRawParameterValue (params::rowId (kLanSync, "on"))->load() > 0.5f);
+    }
+
+    {
         std::printf ("state saves and restores (host project recall)\n");
         ListenProcessor a;
         a.disableNetworkForTesting();
@@ -207,6 +238,12 @@ int main (int argc, char** argv)
         CHECK ((int) b.state.getRawParameterValue (params::kScale)->load() == 24);
         CHECK (b.state.getRawParameterValue (params::rowId (kLanSync, "on"))->load() < 0.5f);
         CHECK (std::abs (b.state.getRawParameterValue (params::kBpm)->load() - 72.0f) < 0.01f);
+
+        // A host can leave a bool at a raw in-between value; restoring must snap it back exactly.
+        auto* midiOut = b.state.getParameter (params::kMidiOut);
+        midiOut->setValueNotifyingHost (0.68f);
+        b.setStateInformation (blob.getData(), (int) blob.getSize());
+        CHECK (std::abs (midiOut->getValue() - 1.0f) < 1.0e-6f);
     }
 
     {
@@ -231,16 +268,33 @@ int main (int argc, char** argv)
     {
         std::printf ("rendering the editor to %s\n", argv[1]);
         ListenProcessor p;
-        p.disableNetworkForTesting();
-        p.prepareToPlay (48000.0, 512);
-        run (p, 3.0, 512, nullptr, [&p] (int b) {
-            if (b % 9 == 0)
-                p.injectEvent (ev (b % kNumKinds, (uint32_t) b));
+        p.prepareToPlay (48000.0, 512); // real listener: the packets below go through it
+        juce::DatagramSocket sender;
+        const juce::String ssdp = "NOTIFY * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nNT: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n";
+        const uint8_t airplay[] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8, '_', 'a', 'i', 'r', 'p', 'l', 'a', 'y',
+                                    4, '_', 't', 'c', 'p', 5, 'l', 'o', 'c', 'a', 'l', 0, 0, 12, 0, 1 };
+        const uint8_t cast[] = { 0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, 11, '_', 'g', 'o', 'o', 'g', 'l', 'e', 'c', 'a', 's', 't',
+                                 4, '_', 't', 'c', 'p', 5, 'l', 'o', 'c', 'a', 'l', 0, 0, 12, 0, 1 };
+        const char spotify[] = "{\"spotify\":1}";
+        run (p, 4.0, 512, nullptr, [&] (int b) {
+            if (b % 25 == 0)
+            {
+                sender.write ("127.0.0.1", 5353, airplay, (int) sizeof (airplay));
+                sender.write ("127.0.0.1", 1900, ssdp.toRawUTF8(), (int) ssdp.getNumBytesAsUTF8());
+            }
+            if (b % 40 == 7)
+                sender.write ("127.0.0.1", 5353, cast, (int) sizeof (cast));
+            if (b % 60 == 11)
+                sender.write ("127.0.0.1", 57621, spotify, (int) sizeof (spotify));
+            juce::Thread::sleep (2); // let the network thread keep up with the offline render
         });
         std::unique_ptr<juce::AudioProcessorEditor> editor (p.createEditorAndMakeActive());
         CHECK (editor != nullptr);
         if (editor != nullptr)
         {
+            editor->setSize (1180, 760);
+            for (int i = 0; i < 20; ++i) // let the editor's timer pull the live feed
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
             const auto img = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
             juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
             file.deleteFile();

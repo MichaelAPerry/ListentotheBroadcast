@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "Presets.h"
 #include <cstring>
 
 using namespace ltb;
@@ -170,6 +171,22 @@ ListenEditor::ListenEditor (ListenProcessor& p) : AudioProcessorEditor (&p), pro
     status.setFont (juce::FontOptions (14.0f));
     addAndMakeVisible (status);
 
+    version.setText (juce::String ("v") + LTB_VERSION, juce::dontSendNotification);
+    version.setColour (juce::Label::textColourId, kMuted.withAlpha (0.7f));
+    version.setFont (juce::FontOptions (12.0f));
+    addAndMakeVisible (version);
+
+    for (int i = 0; i < presets::count(); ++i)
+        presetMenu.addItem (presets::name (i), i + 1);
+    presetMenu.setSelectedItemIndex (processor.getCurrentProgram(), juce::dontSendNotification);
+    presetMenu.setTooltip ("Factory presets. Choosing one resets every control to that preset.");
+    presetMenu.onChange = [this] {
+        const int index = presetMenu.getSelectedItemIndex();
+        if (index >= 0 && index != processor.getCurrentProgram())
+            processor.setCurrentProgram (index);
+    };
+    addAndMakeVisible (presetMenu);
+
     panic.setColour (juce::TextButton::textColourOffId, kWarn);
     panic.setTooltip ("Stop every note now (built-in sound and MIDI out)");
     panic.onClick = [this] { processor.requestPanic(); };
@@ -206,6 +223,8 @@ ListenEditor::ListenEditor (ListenProcessor& p) : AudioProcessorEditor (&p), pro
     addCombo (harmonyFields, P::kProgression, "Progression");
     addCombo (harmonyFields, P::kChangeMode, "Change chord");
     addSlider (harmonyFields, P::kChangeBars, "Bars per chord");
+    tip (addCombo (harmonyFields, P::kMelody, "Device melody"),
+         "Note rows: each device walks its own short phrase, or always plays its one home note");
 
     // Traffic → Sound
     for (int k = 0; k < kNumKinds; ++k)
@@ -250,7 +269,8 @@ ListenEditor::ListenEditor (ListenProcessor& p) : AudioProcessorEditor (&p), pro
         rows.push_back (std::move (row));
     }
 
-    feed.setMultiLine (true);
+    feed.setMultiLine (true, false); // one packet per line, no wrapping
+    feed.setTabKeyUsedAsCharacter (true);
     feed.setReadOnly (true);
     feed.setScrollbarsShown (true);
     feed.setCaretVisible (false);
@@ -293,7 +313,10 @@ void ListenEditor::resized()
     panic.setBounds (header.removeFromRight (84).reduced (0, 4));
     header.removeFromRight (8);
     testAll.setBounds (header.removeFromRight (110).reduced (0, 4));
-    title.setBounds (header.removeFromLeft (230));
+    header.removeFromRight (8);
+    presetMenu.setBounds (header.removeFromRight (170).reduced (0, 5));
+    title.setBounds (header.removeFromLeft (222));
+    version.setBounds (header.removeFromLeft (44).withTrimmedTop (4));
     status.setBounds (header);
     area.removeFromTop (8);
 
@@ -401,7 +424,13 @@ void ListenEditor::timerCallback()
                                + juce::String (e.getNotes (r->kind)) + " notes",
                            juce::dontSendNotification);
         r->meter.repaint();
+        // "Hit note" only matters for the Hit role.
+        const bool isHit = r->role.getSelectedItemIndex() == kRoleHit;
+        r->hitNote.setEnabled (isHit);
+        r->hitNote.setAlpha (isHit ? 1.0f : 0.35f);
     }
+    if (presetMenu.getSelectedItemIndex() != processor.getCurrentProgram() && ! presetMenu.isPopupActive())
+        presetMenu.setSelectedItemIndex (processor.getCurrentProgram(), juce::dontSendNotification);
 
     if (listener == nullptr)
     {

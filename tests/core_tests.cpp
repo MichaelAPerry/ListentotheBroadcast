@@ -172,6 +172,7 @@ static void testDevicesHaveStableNotes()
     r.settings.rows[kMdns].chance = 1.0f;
     r.settings.rows[kMdns].density = 16;
     r.settings.progression = 0; // hold
+    r.settings.deviceMotifs = false;
     std::map<uint32_t, std::set<float>> pitches;
     for (uint32_t d : { 11u, 11u, 12u, 13u, 14u, 11u })
     {
@@ -187,6 +188,36 @@ static void testDevicesHaveStableNotes()
     for (auto& [d, p] : pitches)
         all.insert (p.begin(), p.end());
     CHECK (all.size() > 1);
+}
+
+static void testDeviceMotifs()
+{
+    std::printf ("engine: a chatty device walks a phrase that stays in the scale\n");
+    Rig r;
+    r.only (kMdns);
+    r.settings.rows[kMdns].division = 0;
+    r.settings.rows[kMdns].chance = 1.0f;
+    r.settings.rows[kMdns].density = 16;
+    r.settings.progression = 0;
+    r.settings.root = 0;
+    r.settings.scale = 0; // major
+    std::vector<float> seq;
+    for (int i = 0; i < 8; ++i)
+    {
+        r.event (kMdns, 4242u);
+        r.run (16);
+        if (! r.rec.ons.empty())
+            seq.push_back (r.rec.ons.back().note.pitch);
+    }
+    CHECK (seq.size() == 8);
+    CHECK (std::set<float> (seq.begin(), seq.end()).size() >= 3); // not one repeated note
+    for (size_t i = 0; i + 4 < seq.size(); ++i)
+        CHECK (seq[i] == seq[i + 4]); // the same four-note phrase repeats: recognisable per device
+    for (float p : seq)
+    {
+        const int pc = ((int) std::lround (p) % 12 + 12) % 12;
+        CHECK (pc == 0 || pc == 2 || pc == 4 || pc == 5 || pc == 7 || pc == 9 || pc == 11);
+    }
 }
 
 static void testEveryNoteEnds()
@@ -378,7 +409,8 @@ static void testListener()
     to.sin_family = AF_INET;
     to.sin_port = htons (45354);
     inet_pton (AF_INET, "127.0.0.1", &to.sin_addr);
-    sendto (s, msg, (int) sizeof (msg), 0, (sockaddr*) &to, sizeof (to));
+    for (int i = 0; i < 3; ++i) // identical packets: one feed line with a repeat count
+        sendto (s, msg, (int) sizeof (msg), 0, (sockaddr*) &to, sizeof (to));
     to.sin_port = htons (45355);
     inet_pton (AF_INET, "239.255.77.77", &to.sin_addr);
     unsigned char loopOn = 1;
@@ -389,7 +421,7 @@ static void testListener()
     {
         {
             std::lock_guard<std::mutex> g (m);
-            if (got.size() >= (multicastSent ? 2u : 1u))
+            if (got.size() >= (multicastSent ? 4u : 3u))
                 break;
         }
         std::this_thread::sleep_for (std::chrono::milliseconds (50));
@@ -408,7 +440,14 @@ static void testListener()
         else
             std::printf ("  (no multicast route in this environment; skipped multicast check)\n");
         CHECK (listener.getDeviceCount() >= 1);
-        CHECK (! listener.getRecentLines().empty());
+        const auto lines = listener.getRecentLines();
+        CHECK (! lines.empty());
+        bool collapsed = false;
+        for (auto& l : lines)
+            collapsed = collapsed || l.rfind ("x2\t", 0) == 0; // 1st is the "new device" line
+        CHECK (collapsed);
+        for (auto& l : lines)
+            std::printf ("  feed: %s\n", l.c_str());
     }
 #if defined(_WIN32)
     closesocket (s);
@@ -428,6 +467,7 @@ int main()
     testQueue();
     testGridAndScale();
     testDevicesHaveStableNotes();
+    testDeviceMotifs();
     testEveryNoteEnds();
     testDensityCap();
     testProgressionFollowsBars();

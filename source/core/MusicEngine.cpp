@@ -7,6 +7,8 @@ namespace ltb
 {
 namespace
 {
+constexpr uint32_t kTestDevice = 0x5EED0000u; // synthetic source for the Test buttons
+
 int64_t floorDiv (int64_t a, int64_t b) noexcept
 {
     int64_t q = a / b;
@@ -56,6 +58,7 @@ void MusicEngine::reset() noexcept
     firesThisBar = {};
     lastTrafficStep.fill (INT64_MIN / 2);
     numActive = 0;
+    deviceSteps = {};
     sampleClock = 0;
     lastStep = INT64_MIN;
     lastPpqEnd = -1.0;
@@ -143,7 +146,7 @@ void MusicEngine::processBlock (const EngineSettings& s, double ppqStart, double
             {
                 Pending p;
                 p.count = 1;
-                p.device = 0x5EED0000u + (uint32_t) k;
+                p.device = kTestDevice + (uint32_t) k;
                 p.size = 100;
                 fire (s, k, p, 16, 0, samplesPerStep, sink, s.rows[(size_t) k].role == kRolePad);
             }
@@ -275,9 +278,15 @@ int MusicEngine::fire (const EngineSettings& s, int kind, const Pending& p, int 
             break;
         default:
         {
-            // Each device gets a stable scale degree relative to the current chord.
-            const int motif = (int) (p.device % (uint32_t) scale.numSteps);
-            pitches[0] = base + degreeToSemitones (scale, chordRoot + motif) + (p.size > 400 ? 12.0f : 0.0f);
+            // Each device gets a stable home degree relative to the current chord, and (optionally)
+            // walks its own four-note phrase from there, so a chatty device sings rather than repeats.
+            static constexpr int kMotifs[6][4] = { { 0, 2, 4, 2 }, { 0, 1, 2, 4 }, { 0, -1, 1, 2 },
+                                                   { 0, 4, 3, 1 }, { 0, 2, 1, -2 }, { 0, 3, 2, 5 } };
+            const int home = (int) (p.device % (uint32_t) scale.numSteps);
+            int step = 0;
+            if (s.deviceMotifs && (p.device & 0xFFFF0000u) != kTestDevice)
+                step = kMotifs[(p.device / 7u) % 6u][nextMotifStep (p.device) % 4u];
+            pitches[0] = base + degreeToSemitones (scale, chordRoot + home + step) + (p.size > 400 ? 12.0f : 0.0f);
             numPitches = 1;
         }
     }
@@ -331,6 +340,20 @@ int MusicEngine::fire (const EngineSettings& s, int kind, const Pending& p, int 
     ++firesThisBar[(size_t) kind];
     notesPlayed[(size_t) kind].fetch_add (numPitches, std::memory_order_relaxed);
     return numPitches;
+}
+
+uint32_t MusicEngine::nextMotifStep (uint32_t device) noexcept
+{
+    DeviceStep* victim = &deviceSteps[0];
+    for (auto& d : deviceSteps)
+    {
+        if (d.count > 0 && d.device == device)
+            return d.count++;
+        if (d.count < victim->count)
+            victim = &d;
+    }
+    *victim = { device, 1 };
+    return 0;
 }
 
 void MusicEngine::release (size_t index, int offset, NoteSink& sink) noexcept

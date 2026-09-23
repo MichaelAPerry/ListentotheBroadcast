@@ -30,6 +30,7 @@ inline constexpr const char* kMidiOut = "midiOut";
 inline constexpr const char* kMicrotones = "microtones";
 inline constexpr const char* kBendRange = "bendRange";
 inline constexpr const char* kTrafficCC = "trafficCC";
+inline constexpr const char* kMelody = "melody";
 
 // Per traffic row: "<kind id>_<suffix>", e.g. "mdns_sound".
 inline constexpr const char* kRowSuffixes[] = { "on", "role", "sound", "ch", "oct", "rhythm", "len", "vel", "max", "chance", "note" };
@@ -60,7 +61,7 @@ private:
 
     std::atomic<float>*sync, *hostTempo, *bpmParam, *swing, *root, *scale, *octave, *chordDegree, *chordSize, *chordStack,
         *chordSpread, *progression, *changeMode, *changeBars, *maxNotes, *level, *reverb, *synthOnParam, *midiOutParam,
-        *microtones, *bendRangeParam, *trafficCCParam;
+        *microtones, *bendRangeParam, *trafficCCParam, *melody;
     std::array<std::array<std::atomic<float>*, 11>, kNumKinds> rows {};
 };
 } // namespace ltb::params

@@ -71,6 +71,7 @@ struct EngineSettings
     int changeBars = 4;
     float level = 1.0f;
     int maxNotesPerStep = 6;
+    bool deviceMotifs = true; // note role: each device walks its own short phrase instead of one note
     std::array<RowSettings, kNumKinds> rows;
 
     static EngineSettings defaults();
@@ -145,6 +146,15 @@ private:
     std::array<float, kNumKinds> act {};
     std::array<int, kNumKinds> firesThisBar {};
     std::array<int64_t, kNumKinds> lastTrafficStep {}; // for pads: only breathe while traffic is recent
+
+    // How many notes each device has played, for its motif. Fixed size: the least-used slot is recycled.
+    struct DeviceStep
+    {
+        uint32_t device = 0;
+        uint32_t count = 0;
+    };
+    std::array<DeviceStep, 64> deviceSteps {};
+    uint32_t nextMotifStep (uint32_t device) noexcept;
     std::array<Active, 256> active {};
     size_t numActive = 0;
 

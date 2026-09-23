@@ -13,7 +13,15 @@
 using SocketHandle = SOCKET;
 static constexpr SocketHandle kBadSocket = INVALID_SOCKET;
 static void closeSocket (SocketHandle s) { closesocket (s); }
-static std::string lastSocketError() { return "error " + std::to_string (WSAGetLastError()); }
+static std::string lastSocketError()
+{
+    switch (const int e = WSAGetLastError())
+    {
+        case WSAEACCES: return "held by another app"; // e.g. Steam on 27036, Windows on 137/138
+        case WSAEADDRINUSE: return "in use by another app";
+        default: return "error " + std::to_string (e);
+    }
+}
 #else
  #include <arpa/inet.h>
  #include <cerrno>
@@ -24,7 +32,14 @@ static std::string lastSocketError() { return "error " + std::to_string (WSAGetL
 using SocketHandle = int;
 static constexpr SocketHandle kBadSocket = -1;
 static void closeSocket (SocketHandle s) { ::close (s); }
-static std::string lastSocketError() { return std::strerror (errno); }
+static std::string lastSocketError()
+{
+    if (errno == EACCES)
+        return "needs admin rights (port below 1024)";
+    if (errno == EADDRINUSE)
+        return "in use by another app";
+    return std::strerror (errno);
+}
 #endif
 
 namespace ltb
@@ -191,7 +206,11 @@ std::string describePacket (uint8_t kind, const uint8_t* data, size_t size, uint
                     while (v < text.size() && text[v] == ' ')
                         ++v;
                     const auto end = text.find ("\r\n", v);
-                    first += " " + text.substr (v, std::min<size_t> (60, (end == std::string::npos ? text.size() : end) - v));
+                    auto value = text.substr (v, (end == std::string::npos ? text.size() : end) - v);
+                    for (const char* prefix : { "urn:schemas-upnp-org:", "urn:dial-multiscreen-org:" })
+                        if (value.rfind (prefix, 0) == 0)
+                            value = value.substr (std::strlen (prefix));
+                    first += " " + value.substr (0, 48);
                     break;
                 }
             }
@@ -281,7 +300,11 @@ std::vector<NetListener::PortStatus> NetListener::getStatus() const
 std::vector<std::string> NetListener::getRecentLines() const
 {
     std::lock_guard<std::mutex> g (infoLock);
-    return { recent.begin(), recent.end() };
+    std::vector<std::string> out;
+    out.reserve (recent.size());
+    for (const auto& l : recent)
+        out.push_back ((l.count > 1 ? "x" + std::to_string (l.count) : std::string()) + "\t" + l.text);
+    return out;
 }
 
 void NetListener::run()
@@ -340,7 +363,18 @@ void NetListener::run()
             if (ev.newDevice)
                 line = "+ new device " + std::string (ipText);
             std::lock_guard<std::mutex> g (infoLock);
-            recent.push_back (std::move (line));
+            // Chatty devices repeat themselves (often two of them, alternating): merge a line that
+            // matches one of the last few into a single, most-recent line with a count.
+            int count = 1;
+            const size_t window = std::min<size_t> (recent.size(), 6);
+            for (size_t j = recent.size() - window; j < recent.size(); ++j)
+                if (recent[j].text == line)
+                {
+                    count += recent[j].count;
+                    recent.erase (recent.begin() + (long) j);
+                    break;
+                }
+            recent.push_back ({ std::move (line), count });
             while (recent.size() > 200)
                 recent.pop_front();
         }

@@ -32,10 +32,11 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 5.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return "Default"; }
+    // Factory presets, as host programs.
+    int getNumPrograms() override;
+    int getCurrentProgram() override { return currentProgram.load(); }
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -111,6 +112,7 @@ private:
     std::atomic<double> uiTempo { 84.0 };
     std::atomic<bool> uiFollowingHost { false };
     std::atomic<int> uiMidiSent { 0 };
+    std::atomic<int> currentProgram { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ListenProcessor)
 };

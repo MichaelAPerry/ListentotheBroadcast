@@ -48,6 +48,10 @@ if(LTB_BUILD_PLUGIN)
     juce_add_plugin(ListenToTheBroadcast
         PRODUCT_NAME "Listen to the Broadcast"
         COMPANY_NAME "Listen to the Broadcast"
+        COMPANY_COPYRIGHT "GPL-3.0-or-later"
+        COMPANY_WEBSITE "https://github.com/MichaelAPerry/ListentotheBroadcast"
+        DESCRIPTION "Ambient instrument that plays your local network's broadcast traffic"
+        VERSION ${PROJECT_VERSION}
         BUNDLE_ID "org.listentothebroadcast.plugin"
         PLUGIN_MANUFACTURER_CODE Ltbc
         PLUGIN_CODE Ltb1
@@ -63,13 +67,15 @@ if(LTB_BUILD_PLUGIN)
     target_sources(ListenToTheBroadcast PRIVATE
         source/plugin/PluginProcessor.cpp
         source/plugin/PluginEditor.cpp
-        source/plugin/Parameters.cpp)
+        source/plugin/Parameters.cpp
+        source/plugin/Presets.cpp)
     target_include_directories(ListenToTheBroadcast PRIVATE source/plugin)
 
     target_compile_definitions(ListenToTheBroadcast PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0)
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        LTB_VERSION="${PROJECT_VERSION}")
 
     target_link_libraries(ListenToTheBroadcast
         PRIVATE
@@ -95,10 +101,12 @@ if(LTB_BUILD_PLUGIN)
             tests/plugin_tests.cpp
             source/plugin/PluginProcessor.cpp
             source/plugin/PluginEditor.cpp
-            source/plugin/Parameters.cpp)
+            source/plugin/Parameters.cpp
+            source/plugin/Presets.cpp)
         target_include_directories(ltb_plugin_tests PRIVATE source/plugin)
         target_compile_definitions(ltb_plugin_tests PRIVATE
-            JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Listen to the Broadcast")
+            JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Listen to the Broadcast"
+            LTB_VERSION="${PROJECT_VERSION}")
         target_link_libraries(ltb_plugin_tests PRIVATE
             ltb_core juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
         add_test(NAME plugin COMMAND ltb_plugin_tests)

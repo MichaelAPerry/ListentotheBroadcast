@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "Presets.h"
 
 #include <algorithm>
 #include <cmath>
@@ -223,6 +224,20 @@ void ListenProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     }
 }
 
+int ListenProcessor::getNumPrograms() { return presets::count(); }
+
+const juce::String ListenProcessor::getProgramName (int index) { return presets::name (index); }
+
+void ListenProcessor::setCurrentProgram (int index)
+{
+    if (! juce::isPositiveAndBelow (index, presets::count()))
+        return;
+    presets::apply (state, index);
+    currentProgram.store (index);
+    state.state.setProperty ("program", index, nullptr);
+    updateHostDisplay (ChangeDetails().withProgramChanged (true));
+}
+
 juce::AudioProcessorEditor* ListenProcessor::createEditor() { return new ListenEditor (*this); }
 
 void ListenProcessor::getStateInformation (juce::MemoryBlock& destData)
@@ -235,7 +250,19 @@ void ListenProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (state.state.getType()))
+        {
             state.replaceState (juce::ValueTree::fromXml (*xml));
+            // JUCE's bool parameters keep a raw in-between value (e.g. 0.68) if a host set one, and
+            // replaceState skips them when that value already rounds to the saved state. Snap them.
+            for (auto* p : getParameters())
+                if (auto* b = dynamic_cast<juce::AudioParameterBool*> (p))
+                {
+                    const float saved = b->convertTo0to1 ((float) state.getParameterAsValue (b->getParameterID()).getValue());
+                    if (std::abs (p->getValue() - saved) > 1.0e-6f)
+                        b->setValueNotifyingHost (saved);
+                }
+            currentProgram.store (juce::jlimit (0, presets::count() - 1, (int) state.state.getProperty ("program", 0)));
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new ListenProcessor(); }

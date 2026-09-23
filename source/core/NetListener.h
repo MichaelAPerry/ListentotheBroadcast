@@ -73,7 +73,12 @@ private:
 
     mutable std::mutex infoLock;
     std::vector<PortStatus> status;
-    std::deque<std::string> recent;
+    struct FeedLine
+    {
+        std::string text;
+        int count;
+    };
+    std::deque<FeedLine> recent; // repeats within the last few lines are merged, with a count
 
     std::unordered_set<uint32_t> devices; // network thread only
     std::atomic<int> deviceCount { 0 };

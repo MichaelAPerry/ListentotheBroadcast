@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write # only used to attach files to a Release when a v* tag is pushed
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -47,13 +50,30 @@ jobs:
         run: |
           New-Item -ItemType Directory package | Out-Null
           Copy-Item -Recurse "build\ListenToTheBroadcast_artefacts\Release\VST3\Listen to the Broadcast.vst3" package\
+          # Debug symbols stay out of the download (smaller, and only useful to developers).
+          Get-ChildItem package -Recurse -Include *.pdb,*.lib,*.exp | Remove-Item
           Copy-Item INSTALL-Windows.txt package\
+          $dll = Get-ChildItem package -Recurse -Filter "*.vst3" | Where-Object { -not $_.PSIsContainer }
+          (Get-FileHash $dll.FullName -Algorithm SHA256).Hash + "  Listen to the Broadcast.vst3 (plugin DLL)" | Out-File package\SHA256.txt -Encoding ascii
           Compress-Archive -Path package\* -DestinationPath ListenToTheBroadcast-VST3-Windows.zip
+          (Get-FileHash ListenToTheBroadcast-VST3-Windows.zip -Algorithm SHA256).Hash + "  ListenToTheBroadcast-VST3-Windows.zip" | Out-File ListenToTheBroadcast-VST3-Windows.zip.sha256 -Encoding ascii
+          Get-Content package\SHA256.txt, ListenToTheBroadcast-VST3-Windows.zip.sha256
 
       - uses: actions/upload-artifact@v4
         with:
           name: ListenToTheBroadcast-VST3-Windows
-          path: ListenToTheBroadcast-VST3-Windows.zip
+          path: |
+            ListenToTheBroadcast-VST3-Windows.zip
+            ListenToTheBroadcast-VST3-Windows.zip.sha256
+
+      # Pushing a tag like v1.0.0 publishes a GitHub Release with the zip and its checksum.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ListenToTheBroadcast-VST3-Windows.zip
+            ListenToTheBroadcast-VST3-Windows.zip.sha256
 
       - uses: actions/upload-artifact@v4
         with:

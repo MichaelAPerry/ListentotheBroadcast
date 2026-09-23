@@ -13,6 +13,13 @@ Listen to the Broadcast - VST3 instrument
    listens; it never sends anything and needs no admin rights.
 
 4. Press "Test sound" in the plugin window. You should hear it straight away.
+   Try the preset menu at the top of the window.
 
 To stop it, remove the plugin from your host or close the host.
 To uninstall, delete the folder from C:\Program Files\Common Files\VST3\.
+
+Windows security warning?
+  The plugin is new and not code-signed, so SmartScreen or Defender may warn
+  about it. SHA256.txt in this zip lists the plugin DLL's checksum; compare it
+  with:  Get-FileHash "Listen to the Broadcast.vst3\Contents\x86_64-win\Listen to the Broadcast.vst3"
+  More details: https://github.com/MichaelAPerry/ListentotheBroadcast#windows-flagged-it-as-a-virus

@@ -84,6 +84,7 @@ Layout createLayout()
     addChoice (l, kProgression, "Progression", progNames, d.progression);
     addChoice (l, kChangeMode, "Change chord", { "Every N bars", "When a new device appears" }, 0);
     addInt (l, kChangeBars, "Bars per chord", 1, 16, d.changeBars);
+    addChoice (l, kMelody, "Device melody", { "A phrase per device", "One note per device" }, d.deviceMotifs ? 0 : 1);
 
     for (int k = 0; k < kNumKinds; ++k)
     {
@@ -133,6 +134,7 @@ Snapshot::Snapshot (juce::AudioProcessorValueTreeState& s)
     microtones = p (kMicrotones);
     bendRangeParam = p (kBendRange);
     trafficCCParam = p (kTrafficCC);
+    melody = p (kMelody);
     for (int k = 0; k < kNumKinds; ++k)
         for (size_t i = 0; i < rows[(size_t) k].size(); ++i)
             rows[(size_t) k][i] = p (rowId (k, kRowSuffixes[i]));
@@ -154,6 +156,7 @@ EngineSettings Snapshot::engineSettings() const noexcept
     s.changeOnNewDevice = i (changeMode) == 1;
     s.changeBars = i (changeBars);
     s.maxNotesPerStep = i (maxNotes);
+    s.deviceMotifs = i (melody) == 0;
     s.level = 1.0f;
     for (int k = 0; k < kNumKinds; ++k)
     {

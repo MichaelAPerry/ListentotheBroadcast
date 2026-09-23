@@ -64,6 +64,8 @@ private:
 
     juce::Label title, status;
     juce::TextButton panic { "Panic" }, testAll { "Test sound" };
+    juce::ComboBox presetMenu;
+    juce::Label version;
     std::vector<Field> beatFields, harmonyFields;
     std::vector<std::unique_ptr<Row>> rows;
     juce::TextEditor feed;
