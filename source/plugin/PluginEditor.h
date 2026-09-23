@@ -23,6 +23,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void refreshNow() { timerCallback(); } // offline rendering (demo/screenshot), where no timer runs
 
 private:
     struct Theme : juce::LookAndFeel_V4

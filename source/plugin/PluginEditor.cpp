@@ -447,9 +447,16 @@ void ListenEditor::timerCallback()
         else
             failed.add (juce::String (st.name) + " (" + st.detail + ")");
     }
-    portSummary.setText ("Listening on " + juce::String (ok) + " of " + juce::String (total) + " ports"
-                             + (failed.isEmpty() ? juce::String (" - no admin rights needed") : ". Unavailable: " + failed.joinIntoString (", ")),
-                         juce::dontSendNotification);
+    if (listener->isSimulated())
+    {
+        portSummary.setText ("Simulated network (demo) - no real traffic is being read", juce::dontSendNotification);
+    }
+    else
+    {
+        portSummary.setText ("Listening on " + juce::String (ok) + " of " + juce::String (total) + " ports"
+                                 + (failed.isEmpty() ? juce::String (" - no admin rights needed") : ". Unavailable: " + failed.joinIntoString (", ")),
+                             juce::dontSendNotification);
+    }
     portSummary.setColour (juce::Label::textColourId, ok > 0 ? kMuted : kWarn);
 
     const auto lines = listener->getRecentLines();

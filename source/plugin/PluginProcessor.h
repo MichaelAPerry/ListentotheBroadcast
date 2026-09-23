@@ -58,6 +58,13 @@ public:
 
     // For tests: turn off the real network listener before prepareToPlay.
     void disableNetworkForTesting() noexcept { networkEnabled = false; }
+    // For demos: a listener that opens no sockets and is fed with simulatePacket() instead.
+    void useSimulatedNetwork() noexcept { simulatedNetwork = true; }
+    void simulatePacket (uint8_t kind, uint16_t port, uint32_t ipv4, const void* data, size_t size, double seconds)
+    {
+        if (listener != nullptr && listener->isSimulated())
+            listener->simulatePacket (kind, port, ipv4, static_cast<const uint8_t*> (data), size, seconds);
+    }
 
 private:
     struct PendingNote
@@ -95,6 +102,7 @@ private:
     ltb::SpscQueue<ltb::NetEvent, 2048> events;
     std::unique_ptr<ltb::NetListener> listener;
     bool networkEnabled = true;
+    bool simulatedNetwork = false;
 
     ltb::AmbientSynth synth;
     juce::Reverb reverb;

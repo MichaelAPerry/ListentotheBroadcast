@@ -11,7 +11,11 @@ Your network never stops talking to itself:
 
 Listen to the Broadcast hears that chatter and turns it into slow, evolving music, on the beat and in the scale you choose.
 
+**▶ [Listen to a 40-second demo (MP3)](https://github.com/MichaelAPerry/ListentotheBroadcast/raw/main/docs/demo.mp3)** · **[watch it with the plugin window (MP4)](https://github.com/MichaelAPerry/ListentotheBroadcast/raw/main/docs/demo.mp4)**
+
 ![The plugin window](docs/screenshot.png)
+
+<sub>Demo note: the demo is the real plugin playing a *simulated* household: a speaker, TV, laptop, printer, phone and NAS, with a new phone joining at 0:22. Those packets go through exactly the code path real ones take. It was rendered offline by [`tools/render_demo.cpp`](tools/render_demo.cpp), so anyone can reproduce it. Your own network will sound different, which is the point.</sub>
 
 ## What it does
 
@@ -21,7 +25,7 @@ Listen to the Broadcast hears that chatter and turns it into slow, evolving musi
 - **Has about 50 scales from many traditions:**
   - Western modes, pentatonics, blues, whole tone and diminished
   - Middle Eastern: Hijaz, Double Harmonic, Nahawand, Kurd, Nikriz, Persian
-  - **True quarter-tone Arabic maqamat:** Rast, Bayati, Saba, Sikah
+  - **Quarter-tone maqam approximations:** Rast, Bayati, Saba, Sikah. These are fixed-pitch approximations of each maqam's scale. They don't capture its melodic path, jins structure, modulation or regional intonation.
   - Hungarian minor and Ukrainian Dorian
   - Hindustani thaats: Bhairav, Todi, Purvi, Marwa, Kalyan…
   - Japanese and Chinese pentatonics
@@ -118,9 +122,20 @@ Audio thread (no locks, no allocation)
   roles → notes → built-in synth + reverb, and MIDI out
 ```
 
-**Privacy:** the plugin only reads broadcast and multicast traffic that already reaches your computer. It keeps no logs, stores nothing on disk, and shows addresses only in its own window.
+**What it reads, and what it keeps:**
+- It only reads broadcast and multicast traffic that already reaches your computer.
+- It keeps no logs, stores nothing on disk, and sends nothing anywhere. Addresses appear only in its own window.
+- Each device's "voice" comes from a *stable identifier*: an unsalted 32-bit hash of its IPv4 address. That's a convenience so a device keeps the same note across sessions. It is not an anonymisation.
 
 The design notes and prior art are in [docs/architecture-evaluation.md](docs/architecture-evaluation.md).
+
+## Roadmap
+
+- **IPv6 discovery traffic:** mDNS `ff02::fb`, SSDP and WS-Discovery `ff02::c`, LLMNR `ff02::1:3`, DHCPv6 `ff02::1:2`. Most devices on dual-stack networks announce over IPv4 too, so today's version already hears most of the chatter.
+- **Code-signed Windows builds,** so SmartScreen and Defender stop warning.
+- **A "network map" view:** each device with its name (from mDNS or SSDP), its voice, and mute/solo. Hear your LAN and understand it: a teaching tool for networking and IT as much as an instrument.
+- **More formats:** AU and VST3 on macOS, and CLAP.
+- **A demo recorded on a real network.**
 
 ## Building from source
 
@@ -144,8 +159,16 @@ build/ltb_plugin_tests_artefacts/Release/ltb_plugin_tests     # optional: pass a
 - **`ltb_core_tests`** covers the timing grid, scales, chords, progressions, pads, motifs, the synth, and the network listener on real sockets.
 - **`ltb_plugin_tests`** drives the actual plugin offline. It checks sound and MIDI, host sync, the presets, save and restore, panic, and shutdown time.
 
+**Regenerate the demo** with `tools/make_demo.sh build`. It builds nothing itself; it needs the `ltb_render_demo` target and `ffmpeg`.
+
 **CI** (`.github/workflows/build.yml`) runs on every push, on Windows and Linux. It builds, runs both test suites, and validates the plugin with [pluginval](https://github.com/Tracktion/pluginval) at its strictest level. The Windows job uploads the plugin zip and its checksum. Pushing a tag such as `v1.0.0` also publishes them as a GitHub Release.
 
 ## License
 
-GPL-3.0-or-later (see [LICENSE](LICENSE)). Built with [JUCE](https://juce.com) (AGPLv3) and the Steinberg VST3 SDK (MIT).
+Listen to the Broadcast is **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
+
+It's built with:
+- **[JUCE](https://juce.com) 8**, used under **AGPLv3**,
+- the **Steinberg VST3 SDK**, which is **MIT** since version 3.8.
+
+The released plugin therefore combines GPLv3 code with AGPLv3 code. [docs/LICENSING.md](docs/LICENSING.md) explains why that's allowed, what it means for anyone redistributing the plugin, and when a commercial JUCE licence would be needed instead.

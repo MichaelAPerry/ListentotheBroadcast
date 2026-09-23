@@ -43,7 +43,7 @@ struct NetEvent
     uint8_t kind = 0;
     bool newDevice = false; // first packet from this source after the warm-up period
     uint16_t size = 0;
-    uint32_t device = 0; // stable hash of the source address
+    uint32_t device = 0; // stable identifier: unsalted hash of the source IPv4 address (not an anonymisation)
 };
 
 // Single-producer single-consumer lock-free ring. The network thread pushes,

@@ -2,6 +2,36 @@
 
 Goal: turn live **local-network broadcast and multicast traffic** into ambient music and notes inside a DAW, without ever putting the DAW's audio thread at risk.
 
+## Decision (v1.0): a self-contained JUCE VST3 instrument
+
+The evaluation below compares three architectures. It originally recommended starting with **Method A**, a standalone Python process feeding a virtual MIDI port, and treated **Method C**, a JUCE plugin plus a privileged capture helper, as a later, higher-risk step.
+
+**What we shipped is Method C without the helper.**
+
+That became possible because of §0.2: everything worth hearing is UDP sent to a well-known port. An ordinary, unprivileged socket inside the plugin can receive it, so no capture driver, admin rights or helper process is needed. Dropping the helper removed Method C's biggest costs:
+- a privileged installer,
+- a second process,
+- IPC to that process.
+
+What was left were Method C's strengths:
+- **One thing to install.** Load the plugin and it plays; no virtual MIDI cable.
+- **Sample-accurate timing** that follows the host's transport.
+- **Settings saved with the host project**, and every control automatable.
+- **Its own sound**, plus MIDI out for users who want their own instruments.
+
+The main risk of an in-process plugin is disturbing the host's audio thread. It's handled by the rules in §0.3:
+- The network runs on its own thread and hands events over a lock-free, lossy queue.
+- The music engine and synth never lock or allocate.
+- pluginval validates every build at its strictest level.
+
+Method A was built first, as a prototype. It worked, but in practice the extra moving parts were exactly where users got stuck: the virtual MIDI port, a separate window, and a process that kept running after its window closed. That experience settled the decision.
+
+What was deliberately left out:
+- **ARP and other layer-2 traffic.** They need packet capture and admin rights.
+- **IPv6.** A roadmap item; most dual-stack devices also announce over IPv4.
+
+The sections below are kept as the record of how the options compared.
+
 ---
 
 ## 0. First principles (these apply to every method below)
@@ -43,7 +73,7 @@ The recommended design is therefore **two ingress tiers**: an unprivileged socke
 3. **Map features, not packets.** One note per packet produces unmusical note floods during an SSDP storm. Aggregate into windows (rates, inter-arrival statistics, entropy, "new device" events) and derive notes from those.
 4. **Hard density caps plus guaranteed note-offs.** Rate-limit notes per voice, track active notes, and send All-Notes-Off on shutdown and on reconnect. Stuck notes are the most common failure in network-driven MIDI.
 5. **Sync to the DAW clock, not wall clock.** Quantize to Ableton Link or incoming MIDI clock so network jitter becomes musical placement instead of timing error.
-6. **Privacy by default.** Hash MACs/IPs into stable identifiers (for example, a salted hash mapped to a scale degree). Never log payloads.
+6. **Keep data local.** Never log or store payloads. (As shipped, each device gets a *stable identifier*: an unsalted 32-bit hash of its IPv4 address. It gives every device its own recurring note, and is not an anonymisation. The plugin shows addresses in its own window anyway, and nothing leaves the machine.)
 
 ---
 
@@ -158,7 +188,7 @@ The recommended design is therefore **two ingress tiers**: an unprivileged socke
 | Toolchain | Python | Max (bundled) | C++/CMake/SDKs/signing |
 | Time to first sound | **Hours** | Hours–day | Days–weeks |
 
-**Recommendation:** start with **Method A**, built as the two-tier ingress (§0.2) and synced to Ableton Link or MIDI clock. It gives the most musical exploration for the least risk. Keep the capture-and-features core as a separate module that emits a small, versioned event schema (see §3), so it can later feed a plugin (Method C, or §3.3) without a rewrite.
+**Original recommendation (superseded; see the decision at the top):** start with **Method A**, built as the two-tier ingress (§0.2) and synced to Ableton Link or MIDI clock. It gives the most musical exploration for the least risk. Keep the capture-and-features core as a separate module that emits a small, versioned event schema (see §3), so it can later feed a plugin (Method C, or §3.3) without a rewrite.
 
 ---
 

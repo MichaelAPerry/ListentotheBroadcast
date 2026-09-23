@@ -110,5 +110,20 @@ if(LTB_BUILD_PLUGIN)
         target_link_libraries(ltb_plugin_tests PRIVATE
             ltb_core juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
         add_test(NAME plugin COMMAND ltb_plugin_tests)
+
+        # Renders the README demo (tools/make_demo.sh turns its output into MP3/MP4).
+        juce_add_console_app(ltb_render_demo PRODUCT_NAME "ltb_render_demo")
+        target_sources(ltb_render_demo PRIVATE
+            tools/render_demo.cpp
+            source/plugin/PluginProcessor.cpp
+            source/plugin/PluginEditor.cpp
+            source/plugin/Parameters.cpp
+            source/plugin/Presets.cpp)
+        target_include_directories(ltb_render_demo PRIVATE source/plugin)
+        target_compile_definitions(ltb_render_demo PRIVATE
+            JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Listen to the Broadcast"
+            LTB_VERSION="${PROJECT_VERSION}")
+        target_link_libraries(ltb_render_demo PRIVATE
+            ltb_core juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
     endif()
 endif()

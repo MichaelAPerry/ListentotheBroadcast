@@ -37,7 +37,7 @@ void ListenProcessor::startNetwork()
             interfaces.push_back (text.toStdString());
     }
     listener = std::make_unique<NetListener> (defaultPortSpecs(), interfaces,
-                                              [this] (const NetEvent& e) { events.push (e); });
+                                              [this] (const NetEvent& e) { events.push (e); }, 15.0, simulatedNetwork);
     listener->start();
 }
 

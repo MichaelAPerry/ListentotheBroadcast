@@ -243,8 +243,10 @@ std::string describePacket (uint8_t kind, const uint8_t* data, size_t size, uint
     return "";
 }
 
-NetListener::NetListener (std::vector<PortSpec> p, std::vector<std::string> ifaces, Sink s, double warmupSeconds)
-    : specs (std::move (p)), interfaces (std::move (ifaces)), sink (std::move (s)), warmup (warmupSeconds)
+NetListener::NetListener (std::vector<PortSpec> p, std::vector<std::string> ifaces, Sink s, double warmupSeconds,
+                          bool simulatedOnly)
+    : specs (std::move (p)), interfaces (std::move (ifaces)), sink (std::move (s)), warmup (warmupSeconds),
+      simulated (simulatedOnly)
 {
     if (interfaces.empty())
         interfaces.push_back ("0.0.0.0");
@@ -262,6 +264,11 @@ void NetListener::start()
     std::vector<PortStatus> st;
     for (const auto& spec : specs)
     {
+        if (simulated)
+        {
+            st.push_back ({ std::string (kKinds[spec.kind].id) + ":" + std::to_string (spec.port), true, "simulated" });
+            continue;
+        }
         std::string why;
         const auto s = openSocket (spec, interfaces, why);
         const std::string name = std::string (kKinds[spec.kind].id) + ":" + std::to_string (spec.port);
@@ -307,6 +314,52 @@ std::vector<std::string> NetListener::getRecentLines() const
     return out;
 }
 
+void NetListener::handlePacket (const PortSpec& spec, uint32_t ip, const uint8_t* data, size_t n, double ageSeconds)
+{
+    NetEvent ev;
+    ev.kind = spec.kind;
+    ev.size = (uint16_t) std::min<size_t> (n, 65535);
+    ev.device = hashAddress (ip);
+    // 0.0.0.0 is a DHCP client that has no address yet, not a device of its own.
+    const bool isNew = ip != 0 && devices.insert (ev.device).second;
+    ev.newDevice = isNew && ageSeconds > warmup;
+    deviceCount.store ((int) devices.size());
+    packetCount.fetch_add (1);
+    sink (ev);
+
+    in_addr addr {};
+    addr.s_addr = htonl (ip);
+    char ipText[INET_ADDRSTRLEN] = {};
+    inet_ntop (AF_INET, &addr, ipText, sizeof (ipText));
+    std::string line = std::string (kKinds[spec.kind].id) + "  " + ipText + "  " + std::to_string (n) + "B  "
+                       + describePacket (spec.kind, data, n, spec.port);
+    if (ev.newDevice)
+        line = "+ new device " + std::string (ipText);
+
+    std::lock_guard<std::mutex> g (infoLock);
+    // Chatty devices repeat themselves (often two of them, alternating): merge a line that
+    // matches one of the last few into a single, most-recent line with a count.
+    int count = 1;
+    const size_t window = std::min<size_t> (recent.size(), 6);
+    for (size_t j = recent.size() - window; j < recent.size(); ++j)
+        if (recent[j].text == line)
+        {
+            count += recent[j].count;
+            recent.erase (recent.begin() + (long) j);
+            break;
+        }
+    recent.push_back ({ std::move (line), count });
+    while (recent.size() > 200)
+        recent.pop_front();
+}
+
+void NetListener::simulatePacket (uint8_t kind, uint16_t port, uint32_t ipv4, const uint8_t* data, size_t size,
+                                  double secondsSinceStart)
+{
+    PortSpec spec { kind, port, kKinds[kind].multicastGroup ? kKinds[kind].multicastGroup : "" };
+    handlePacket (spec, ipv4, data, size, secondsSinceStart);
+}
+
 void NetListener::run()
 {
     using clock = std::chrono::steady_clock;
@@ -343,40 +396,8 @@ void NetListener::run()
             if (n <= 0)
                 continue;
 
-            const auto& spec = openSpecs[i];
-            const uint32_t ip = ntohl (from.sin_addr.s_addr);
-            NetEvent ev;
-            ev.kind = spec.kind;
-            ev.size = (uint16_t) std::min<long> ((long) n, 65535);
-            ev.device = hashAddress (ip);
-            const bool isNew = devices.insert (ev.device).second;
             const double age = std::chrono::duration<double> (clock::now() - started).count();
-            ev.newDevice = isNew && age > warmup;
-            deviceCount.store ((int) devices.size());
-            packetCount.fetch_add (1);
-            sink (ev);
-
-            char ipText[INET_ADDRSTRLEN] = {};
-            inet_ntop (AF_INET, &from.sin_addr, ipText, sizeof (ipText));
-            std::string line = std::string (kKinds[spec.kind].id) + "  " + ipText + "  "
-                               + std::to_string (n) + "B  " + describePacket (spec.kind, buf.data(), (size_t) n, spec.port);
-            if (ev.newDevice)
-                line = "+ new device " + std::string (ipText);
-            std::lock_guard<std::mutex> g (infoLock);
-            // Chatty devices repeat themselves (often two of them, alternating): merge a line that
-            // matches one of the last few into a single, most-recent line with a count.
-            int count = 1;
-            const size_t window = std::min<size_t> (recent.size(), 6);
-            for (size_t j = recent.size() - window; j < recent.size(); ++j)
-                if (recent[j].text == line)
-                {
-                    count += recent[j].count;
-                    recent.erase (recent.begin() + (long) j);
-                    break;
-                }
-            recent.push_back ({ std::move (line), count });
-            while (recent.size() > 200)
-                recent.pop_front();
+            handlePacket (openSpecs[i], ntohl (from.sin_addr.s_addr), buf.data(), (size_t) n, age);
         }
     }
 }

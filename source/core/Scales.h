@@ -28,7 +28,9 @@ struct Scale
 
 inline constexpr const char* kWestern = "Western";
 inline constexpr const char* kMiddleEast = "Middle Eastern";
-inline constexpr const char* kMaqam = "Arabic maqam (quarter-tone)";
+// Fixed-pitch approximations: a maqam is also its melodic path, jins structure, modulation,
+// ornamentation and regional intonation, none of which a seven-note table captures.
+inline constexpr const char* kMaqam = "Arabic maqam (quarter-tone approximations)";
 inline constexpr const char* kEastEurope = "Eastern European";
 inline constexpr const char* kSouthAsia = "South Asian (thaat)";
 inline constexpr const char* kEastAsia = "East Asian";

@@ -40,8 +40,9 @@ public:
     using Sink = std::function<void (const NetEvent&)>;
 
     // `interfaces`: local IPv4 addresses to join multicast groups on ("0.0.0.0" = OS default).
+    // `simulatedOnly`: open no sockets; packets arrive only through simulatePacket() (demos, tests).
     NetListener (std::vector<PortSpec> ports, std::vector<std::string> interfaces, Sink sink,
-                 double newDeviceWarmupSeconds = 15.0);
+                 double newDeviceWarmupSeconds = 15.0, bool simulatedOnly = false);
     ~NetListener();
 
     void start();
@@ -54,17 +55,25 @@ public:
         std::string detail;
     };
     std::vector<PortStatus> getStatus() const;
+
+    // Feeds a packet through exactly the same path as a received one. Only for a simulated
+    // listener: the event sink is single-producer, so it must not race the network thread.
+    void simulatePacket (uint8_t kind, uint16_t port, uint32_t ipv4, const uint8_t* data, size_t size,
+                         double secondsSinceStart);
+    bool isSimulated() const noexcept { return simulated; }
     std::vector<std::string> getRecentLines() const; // newest last
     int getDeviceCount() const noexcept { return deviceCount.load(); }
     uint64_t getPacketCount() const noexcept { return packetCount.load(); }
 
 private:
     void run();
+    void handlePacket (const PortSpec& spec, uint32_t ipv4, const uint8_t* data, size_t size, double ageSeconds);
 
     std::vector<PortSpec> specs;
     std::vector<std::string> interfaces;
     Sink sink;
     double warmup;
+    bool simulated;
 
     std::vector<intptr_t> sockets; // parallel to `openSpecs`
     std::vector<PortSpec> openSpecs;
