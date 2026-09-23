@@ -82,33 +82,57 @@ def auto_output() -> str | None:
 
 
 class SwitchableOut:
-    """A MIDI output whose port can be changed while the engine is running."""
+    """A MIDI output whose port can be changed while the engine is running.
+
+    Counts what it sends and remembers the last send error, so the panel can show
+    whether MIDI is actually leaving the app.
+    """
 
     def __init__(self):
         self._port = None
         self.name = ""
         self._lock = threading.Lock()
+        self.sent = 0
+        self.last_error = ""
 
     def open(self, wanted: str) -> str:
         """Open ``wanted`` (substring ok, or VIRTUAL_CHOICE); "" closes. Returns the port name opened."""
-        new, label = None, ""
         if wanted == VIRTUAL_CHOICE:
-            new, label = mido.open_output(VIRTUAL_PORT_NAME, virtual=True), VIRTUAL_CHOICE
+            target = VIRTUAL_CHOICE
         elif wanted:
-            port = find_port(output_names(), wanted)
-            if not port:
+            target = find_port(output_names(), wanted)
+            if not target:
                 raise ValueError(f"MIDI output '{wanted}' not found")
-            new, label = mido.open_output(port), port
+        else:
+            target = ""
+        if target and target == self.name and self._port is not None:
+            return target  # already open; many Windows drivers refuse a second open of the same port
+        # Close first: single-client Windows MIDI drivers can't have the port open twice.
         with self._lock:
-            old, self._port, self.name = self._port, new, label
+            old, self._port, self.name = self._port, None, ""
         if old:
             old.close()
-        return label
+        if not target:
+            return ""
+        if target == VIRTUAL_CHOICE:
+            new = mido.open_output(VIRTUAL_PORT_NAME, virtual=True)
+        else:
+            new = mido.open_output(target)
+        with self._lock:
+            self._port, self.name = new, target
+        self.last_error = ""
+        return target
 
     def send(self, msg: mido.Message) -> None:
         port = self._port
-        if port is not None:
+        if port is None:
+            return
+        try:
             port.send(msg)
+            self.sent += 1
+        except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
+            raise
 
     def close(self) -> None:
         self.open("")

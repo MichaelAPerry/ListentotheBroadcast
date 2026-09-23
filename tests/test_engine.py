@@ -141,3 +141,23 @@ def test_midi_start_rewinds():
     e.stop()
     run(e, 50)
     assert e.tick_count == 0
+
+
+def test_test_note_plays_immediately_and_releases():
+    e, out, _ = make()
+    e.test_note(3)
+    ons = note_ons(out)
+    assert len(ons) == 1 and ons[0].channel == 2 and ons[0].note == 60
+    run(e, 30)
+    assert not e._active
+    assert any(m.type == "note_off" and m.channel == 2 for m in out.sent)
+
+
+def test_snapshot_counts_packets_and_notes():
+    only = {k: {"enabled": k == "mdns"} for k in S.DEFAULTS["routing"]}
+    e, _, _ = make({"routing": {**only, "mdns": {"enabled": True, "division": 1, "probability": 1}}})
+    e.submit(TrafficEvent("mdns", "10.0.0.1", 60))
+    snap = e.snapshot()
+    assert snap["packets"]["mdns"] == 1 and snap["activity"]["mdns"] > 0.3
+    run(e, 7)
+    assert e.snapshot()["notes"]["mdns"] == 1

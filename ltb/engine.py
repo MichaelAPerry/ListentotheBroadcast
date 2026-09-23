@@ -47,6 +47,9 @@ class Engine:
         self._lock = threading.RLock()
 
         self._pending: dict[str, deque[TrafficEvent]] = {k: deque(maxlen=64) for k in PROTOCOLS_BY_KEY}
+        self._packets: dict[str, int] = {k: 0 for k in PROTOCOLS_BY_KEY}
+        self._notes: dict[str, int] = {k: 0 for k in PROTOCOLS_BY_KEY}
+        self.notes_played = 0
         self._activity: dict[str, float] = {k: 0.0 for k in PROTOCOLS_BY_KEY}
         self._last_cc: dict[int, int] = {}
         self._devices: set[str] = set()
@@ -73,6 +76,7 @@ class Engine:
                 return
             self._pending[event.kind].append(event)
             self._activity[event.kind] += 1.0
+            self._packets[event.kind] += 1
             if event.src not in self._devices:
                 self._devices.add(event.src)
                 if self._now() - self._started_at > NEW_DEVICE_WARMUP_S:
@@ -283,6 +287,8 @@ class Engine:
             self._active[key] = off_tick
 
         self._fires_this_bar[kind] = self._fires_this_bar.get(kind, 0) + 1
+        self._notes[kind] += len(notes)
+        self.notes_played += len(notes)
         self.feed({"type": "note", "kind": kind, "role": role, "channel": ch + 1, "notes": notes,
                    "velocity": vel, "count": count, "src": latest.src if latest else "",
                    "detail": latest.detail if latest else ""})
@@ -330,5 +336,30 @@ class Engine:
                 "chord_degree": self.chord_root_degree(s),
                 "devices": len(self._devices),
                 "active_notes": len(self._active),
-                "activity": {k: round(1 - math.exp(-v / 8), 3) for k, v in self._activity.items()},
+                # Display scale: a single packet shows clearly, a busy stream fills the meter.
+                "activity": {k: round(1 - math.exp(-v / 2), 3) for k, v in self._activity.items()},
+                "packets": dict(self._packets),
+                "notes": dict(self._notes),
+                "notes_played": self.notes_played,
             }
+
+    def test_note(self, channel: int, note: int = 60, velocity: int = 100, beats: float = 1.0) -> None:
+        """Play one note right now on ``channel`` (1-16), bypassing traffic and the grid."""
+        with self._lock:
+            ch = max(1, min(16, int(channel))) - 1
+            self._set_bend(ch, 0)
+            key = (ch, note)
+            if key in self._active:
+                self._send(mido.Message("note_off", channel=ch, note=note, velocity=0))
+            self._send(mido.Message("note_on", channel=ch, note=note, velocity=velocity))
+            # Released by the clock like any other note, or by a timer if the clock is stopped.
+            self._active[key] = self.tick_count + int(24 * beats)
+        timer = threading.Timer(1.5, self._release_test_note, args=(key,))
+        timer.daemon = True
+        timer.start()
+
+    def _release_test_note(self, key: tuple[int, int]) -> None:
+        with self._lock:
+            if key in self._active and not self.running:
+                del self._active[key]
+                self._send(mido.Message("note_off", channel=key[0], note=key[1], velocity=0))

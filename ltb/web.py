@@ -113,6 +113,15 @@ def make_handler(app: App):
                 self._json(app.reset_settings())
             elif path == "/api/ports":
                 self._json(app.set_ports(body))
+            elif path == "/api/test-note":
+                ch, note = body.get("channel", 1), body.get("note", 60)
+                if not (isinstance(ch, int) and 1 <= ch <= 16 and isinstance(note, int) and 0 <= note <= 127):
+                    self._json({"error": "channel must be 1-16, note 0-127"}, HTTPStatus.BAD_REQUEST)
+                    return
+                app.engine.test_note(ch, note)
+                state = app.state()
+                self._json({"midi_out": state["midi_out"], "midi_sent": state["midi_sent"],
+                            "error": state["midi_error"]})
             elif path == "/api/panic":
                 app.engine.panic()
                 self._json({"ok": True})

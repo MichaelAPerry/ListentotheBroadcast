@@ -72,3 +72,12 @@ def test_reset_keeps_port_choice(server):
     app.update_settings({"midi_out": "LTB", "bpm": 60})
     s = _post(url + "api/settings/reset", {})
     assert s["midi_out"] == "LTB" and s["bpm"] == 84.0
+
+
+def test_test_note_endpoint(server):
+    app, url = server
+    r = _post(url + "api/test-note", {"channel": 5})
+    assert r["midi_sent"] >= 1 and r["error"] == ""
+    assert any(m.type == "note_on" and m.channel == 4 for m in app.out.sent)
+    with pytest.raises(urllib.error.HTTPError):
+        _post(url + "api/test-note", {"channel": 99})

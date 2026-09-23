@@ -154,6 +154,8 @@ class App:
             "listeners": self.listener.status if self.listener else {},
             "simulating": self.simulating,
             "midi_out": self.out_name,
+            "midi_sent": len(self.out.sent) if self.dry_run else self.out.sent,
+            "midi_error": getattr(self.out, "last_error", ""),
             "clock_in": self.clock_follower.status() if self.clock_follower else None,
         }
 

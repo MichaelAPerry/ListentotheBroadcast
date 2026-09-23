@@ -41,6 +41,8 @@ td input[type=range] { min-width: 80px; }
 .proto { white-space: nowrap; }
 .proto small { display: block; color: var(--muted); font-size: 11px; }
 .meter { width: 60px; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.counts { font-size: 11px; color: var(--muted); white-space: nowrap; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.play { padding: 2px 8px; margin-left: 6px; font-size: 12px; }
 .meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
 tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .listen-bad { color: var(--warn); }
@@ -51,7 +53,10 @@ tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 #feed .note { color: var(--accent); }
 #feed .chord { color: var(--accent2); font-weight: 600; }
 #feed .device { color: var(--ok); }
+#feed .warn { color: var(--warn); }
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+#diag { font-size: 13px; }
+.good { color: var(--ok) !important; }
 .cc { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; font-size: 12px; color: var(--muted); }
 .cc b { color: var(--text); }
 @media (max-width: 520px) {
@@ -70,6 +75,7 @@ tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
     <span>devices <b id="st-devices">0</b></span>
     <span>notes <b id="st-notes">0</b></span>
     <span>out <b id="st-out">-</b></span>
+    <span>MIDI sent <b id="st-sent">0</b></span>
     <span id="st-clock"></span>
   </div>
   <button class="danger" id="panic" title="All notes off on every channel">Panic</button>
@@ -81,7 +87,8 @@ tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
     <div class="row"><label for="port-out">Output</label><select id="port-out"></select></div>
     <div class="row"><label for="port-in">Clock / CC in</label><select id="port-in"></select></div>
     <p id="port-msg" class="hint"></p>
-    <p><button id="port-refresh">Refresh ports</button></p>
+    <p id="diag" class="hint"></p>
+    <p><button id="port-refresh">Refresh ports</button> <button id="test-all" title="Plays middle C on every enabled channel, one after another">Test sound</button></p>
     <p class="hint">Point your host's MIDI input at the <b>Output</b> port. On Windows, create it once in loopMIDI (or use a Windows MIDI Services loopback). <b>Clock / CC in</b> is optional: a <i>second</i> port that carries the host's MIDI clock and slider CCs back here. Never pick the output port itself.</p>
   </section>
 
@@ -205,8 +212,8 @@ function buildStatic() {
     const roles = meta.roles.map(r => `<option value="${r}">${r}</option>`).join("");
     const divs = meta.divisions.map(d => `<option value="${d}">${DIV_LABELS[d]}</option>`).join("");
     tr.innerHTML = `
-      <td class="proto">${p.label}<small>udp ${p.ports.join(", ")}</small></td>
-      <td><div class="meter"><div></div></div></td>
+      <td class="proto">${p.label}<button class="play" title="Play a test note on this row's channel">▶</button><small>udp ${p.ports.join(", ")}</small></td>
+      <td><div class="meter"><div></div></div><div class="counts">0 pkts · 0 notes</div></td>
       <td><input type="checkbox" data-r="enabled" aria-label="enabled"></td>
       <td><select data-r="role">${roles}</select></td>
       <td><input type="number" min="1" max="16" data-r="channel"></td>
@@ -219,6 +226,7 @@ function buildStatic() {
       <td><input type="range" min="0" max="1" step="0.05" data-r="probability"></td>
       <td><input type="number" min="0" max="127" data-r="hit_note"></td>`;
     tbody.appendChild(tr);
+    tr.querySelector(".play").onclick = () => testNote(settings.routing[p.key].channel);
     tr.querySelectorAll("[data-r]").forEach(el => {
       el.addEventListener("input", () => {
         const v = parseValue(el);
@@ -302,11 +310,38 @@ function onMessage(m) {
     $("#st-clock").innerHTML = c ? `clock in <b>${c.receiving_clock ? c.bpm + " bpm" : "waiting…"}</b>` : "";
     for (const [k, v] of Object.entries(e.activity)) {
       const bar = $(`#row-${k} .meter div`); if (bar) bar.style.width = Math.round(v * 100) + "%";
+      const c = $(`#row-${k} .counts`); if (c) c.textContent = `${e.packets[k]} pkts · ${e.notes[k]} notes`;
     }
+    $("#st-sent").textContent = m.midi_sent;
+    const [cls, text] = diagnose(m);
+    const d = $("#diag"); d.className = "hint " + cls; d.textContent = text;
     const L = m.simulating ? [`<span class="listen-ok">simulated traffic</span>`] :
       Object.entries(m.listeners).map(([k, v]) => `<span class="${v === "ok" ? "listen-ok" : "listen-bad"}"><b>${k}</b> ${v}</span>`);
     $("#listeners").innerHTML = L.join("");
   }
+}
+
+function testNote(ch) {
+  post("/api/test-note", { channel: ch }).then(r => {
+    log(r.error ? "warn" : "note", r.error ? `test note failed: ${r.error}` :
+      `▶ test note C4 on ch${ch} → ${r.midi_out || "no output!"}`);
+  });
+}
+$("#test-all").onclick = () => {
+  const chans = [...new Set(Object.values(settings.routing).filter(r => r.enabled).map(r => r.channel))];
+  chans.forEach((ch, i) => setTimeout(() => testNote(ch), i * 400));
+};
+
+// Plain-language "where is the signal stopping?" line.
+function diagnose(m) {
+  const e = m.engine, packets = Object.values(e.packets).reduce((a, b) => a + b, 0);
+  if (m.midi_error) return ["warn", `MIDI send error: ${m.midi_error}. Try picking the output again, or restart loopMIDI.`];
+  if (!m.midi_out) return ["warn", "No MIDI output selected, so nothing can reach your host."];
+  if (!packets) return ["", m.simulating ? "Waiting for simulated traffic…" :
+    "No network packets yet. Quiet networks can take a minute. If it stays at 0, allow the app in Windows Firewall (private networks)."];
+  if (!e.notes_played) return ["", `${packets} packets heard, waiting for the next beat to play them…`];
+  return ["good", `✓ Sending MIDI to “${m.midi_out}” (${m.midi_sent} messages). No sound? The problem is in the host: ` +
+    `set its MIDI INPUT device to this port, check the plugin isn't filtering these channels, and press Test sound.`];
 }
 
 function renderPorts(p) {
