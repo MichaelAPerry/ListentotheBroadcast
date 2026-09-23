@@ -1,0 +1,18 @@
+Listen to the Broadcast - VST3 instrument
+========================================
+
+1. Copy the folder "Listen to the Broadcast.vst3" into:
+
+       C:\Program Files\Common Files\VST3\
+
+2. In VSTHost (or any DAW), rescan plugins, then load
+   "Listen to the Broadcast" as an instrument.
+
+3. The first time, Windows Firewall asks whether your host (e.g. VSTHost.exe)
+   may receive network traffic. Allow it on PRIVATE networks. The plugin only
+   listens; it never sends anything and needs no admin rights.
+
+4. Press "Test sound" in the plugin window. You should hear it straight away.
+
+To stop it, remove the plugin from your host or close the host.
+To uninstall, delete the folder from C:\Program Files\Common Files\VST3\.
