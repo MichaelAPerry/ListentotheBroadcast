@@ -10,6 +10,7 @@ from typing import Any
 
 from . import settings as settings_mod
 from .engine import Engine
+from .midi_io import ClockFollower, SwitchableOut, auto_output, input_names, output_choices
 
 log = logging.getLogger(__name__)
 
@@ -42,12 +43,13 @@ class FeedHub:
 
 
 class App:
-    def __init__(self, out, settings_path: Path | None, out_name: str):
+    def __init__(self, out, settings_path: Path | None):
         self.settings_path = settings_path
         initial = settings_mod.load(settings_path) if settings_path else settings_mod.default_settings()
         self.hub = FeedHub()
+        self.out = out  # SwitchableOut, or DryRunOut for --dry-run
         self.engine = Engine(out, initial, feed=self.hub.publish)
-        self.out_name = out_name
+        self.dry_run = not isinstance(out, SwitchableOut)
         self.listener = None  # BroadcastListener, when not simulating
         self.clock_follower = None  # ClockFollower, when --clock-in is given
         self.simulating = False
@@ -69,9 +71,73 @@ class App:
         self.hub.publish({"type": "settings", "settings": new})
         return new
 
+    @property
+    def out_name(self) -> str:
+        return "dry run (console)" if self.dry_run else self.out.name
+
+    # ------------------------------------------------------------ MIDI ports
+
+    def connect_output(self, wanted: str | None = None) -> str:
+        """Open ``wanted``, else the saved port, else an auto-detected one. Returns an error or ""."""
+        if self.dry_run:
+            return ""
+        for candidate in (wanted, self.settings["midi_out"], auto_output()):
+            if not candidate:
+                continue
+            try:
+                self.engine.panic()
+                name = self.out.open(candidate)
+            except Exception as e:  # port vanished or is exclusively held by another app
+                log.warning("cannot open MIDI output %s: %s", candidate, e)
+                if candidate == wanted:
+                    return f"Couldn't open '{wanted}': {e}"
+                continue
+            if name != self.settings["midi_out"]:
+                self.update_settings({"midi_out": name})
+            return ""
+        return "No MIDI output found. Create a loopMIDI port, then press Refresh."
+
+    def connect_clock(self, wanted: str) -> str:
+        if self.clock_follower:
+            self.clock_follower.close()
+            self.clock_follower = None
+        if wanted:
+            try:
+                self.clock_follower = ClockFollower(self.engine, wanted, self.handle_cc)
+            except Exception as e:
+                log.warning("cannot open MIDI input %s: %s", wanted, e)
+                return f"Couldn't open '{wanted}': {e}"
+        if wanted != self.settings["clock_in"]:
+            self.update_settings({"clock_in": wanted})
+        return ""
+
+    def set_ports(self, body: dict[str, Any]) -> dict[str, Any]:
+        error = ""
+        if isinstance(body.get("midi_out"), str) and not self.dry_run:
+            error = self.connect_output(body["midi_out"]) if body["midi_out"] else ""
+            if not body["midi_out"]:
+                self.engine.panic()
+                self.out.open("")
+                self.update_settings({"midi_out": ""})
+        if isinstance(body.get("clock_in"), str):
+            error = self.connect_clock(body["clock_in"]) or error
+        return {**self.ports(), "error": error}
+
+    def ports(self) -> dict[str, Any]:
+        return {
+            "outputs": [] if self.dry_run else output_choices(),
+            "inputs": [n for n in input_names() if n != self.out_name],
+            "midi_out": self.out_name,
+            "clock_in": self.clock_follower.name if self.clock_follower else "",
+            "dry_run": self.dry_run,
+        }
+
+    # -------------------------------------------------------------- settings
+
     def reset_settings(self) -> dict[str, Any]:
         with self._lock:
-            self.engine.settings = settings_mod.default_settings()
+            ports = {k: self.settings[k] for k in ("midi_out", "clock_in")}
+            self.engine.settings = settings_mod.apply_update(settings_mod.default_settings(), ports)
         self._dirty.set()
         self.hub.publish({"type": "settings", "settings": self.engine.settings})
         return self.engine.settings
@@ -103,6 +169,8 @@ class App:
 
     def close(self) -> None:
         self._closing.set()
+        if self.clock_follower:
+            self.clock_follower.close()
         if self.settings_path:
             try:
                 settings_mod.save(self.settings_path, self.settings)

@@ -10,7 +10,7 @@ from ltb.web import ControlServer
 
 @pytest.fixture
 def server(tmp_path):
-    app = App(DryRunOut(), tmp_path / "s.json", "test")
+    app = App(DryRunOut(), tmp_path / "s.json")
     srv = ControlServer(app, "127.0.0.1", 0)
     srv.start()
     yield app, srv.url
@@ -59,3 +59,16 @@ def test_cc_moves_sliders(server):
     app.handle_cc(20, 127)
     assert app.settings["root"] == 11
     app.handle_cc(99, 127)  # unmapped CC is ignored
+
+
+def test_ports_api_in_dry_run(server):
+    _, url = server
+    ports = json.loads(_get(url + "api/ports")[1])
+    assert ports["dry_run"] and ports["outputs"] == []
+
+
+def test_reset_keeps_port_choice(server):
+    app, url = server
+    app.update_settings({"midi_out": "LTB", "bpm": 60})
+    s = _post(url + "api/settings/reset", {})
+    assert s["midi_out"] == "LTB" and s["bpm"] == 84.0

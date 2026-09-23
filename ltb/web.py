@@ -8,12 +8,19 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib import resources
+from pathlib import Path
+import sys
 
 from . import settings as settings_mod
 from .app import App
 from .protocols import PROTOCOLS
 from .theory import NOTE_NAMES, SCALES
+
+
+def static_dir() -> Path:
+    # PyInstaller unpacks data files under sys._MEIPASS; otherwise they sit next to this module.
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base, "ltb", "static") if base else Path(__file__).with_name("static")
 
 
 def meta() -> dict:
@@ -30,7 +37,7 @@ def meta() -> dict:
 
 
 def make_handler(app: App):
-    index_html = resources.files("ltb").joinpath("static/index.html").read_bytes()
+    index_html = static_dir().joinpath("index.html").read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "ListenToTheBroadcast"
@@ -79,6 +86,8 @@ def make_handler(app: App):
                 self._json(meta())
             elif path == "/api/state":
                 self._json(app.state())
+            elif path == "/api/ports":
+                self._json(app.ports())
             elif path == "/api/feed":
                 self._feed()
             else:
@@ -102,6 +111,8 @@ def make_handler(app: App):
                 self._json(app.update_settings(body))
             elif path == "/api/settings/reset":
                 self._json(app.reset_settings())
+            elif path == "/api/ports":
+                self._json(app.set_ports(body))
             elif path == "/api/panic":
                 app.engine.panic()
                 self._json({"ok": True})

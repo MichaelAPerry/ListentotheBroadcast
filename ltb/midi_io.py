@@ -35,6 +35,32 @@ class DryRunOut:
         pass
 
 
+VIRTUAL_CHOICE = "(virtual) " + VIRTUAL_PORT_NAME
+# Port names that are almost certainly meant for us, in preference order.
+AUTO_OUT_HINTS = ("ltb", "broadcast", "loopmidi", "loopback (a)", "loopback", "iac")
+
+
+def output_names() -> list[str]:
+    try:
+        return list(dict.fromkeys(mido.get_output_names()))
+    except Exception:  # no MIDI subsystem (e.g. headless Linux without ALSA)
+        return []
+
+
+def input_names() -> list[str]:
+    try:
+        return list(dict.fromkeys(mido.get_input_names()))
+    except Exception:
+        return []
+
+
+def output_choices() -> list[str]:
+    names = [n for n in output_names() if VIRTUAL_PORT_NAME not in n]
+    if sys.platform != "win32":
+        names.insert(0, VIRTUAL_CHOICE)
+    return names
+
+
 def find_port(available: list[str], wanted: str) -> str | None:
     """Exact match first, then case-insensitive substring (Windows appends port numbers)."""
     if wanted in available:
@@ -46,18 +72,46 @@ def find_port(available: list[str], wanted: str) -> str | None:
     return None
 
 
-def open_output(name: str | None):
-    if name:
-        port = find_port(mido.get_output_names(), name)
-        if not port:
-            raise SystemExit(f"MIDI output '{name}' not found. Available: {mido.get_output_names()}")
-        return mido.open_output(port)
-    if sys.platform == "win32":
-        raise SystemExit(
-            "Windows can't create virtual MIDI ports. Install loopMIDI, create a port, and pass "
-            f"--out <name>. Available outputs: {mido.get_output_names()}"
-        )
-    return mido.open_output(VIRTUAL_PORT_NAME, virtual=True)
+def auto_output() -> str | None:
+    names = output_choices()
+    for hint in AUTO_OUT_HINTS:
+        for name in names:
+            if hint in name.lower() and name != VIRTUAL_CHOICE:
+                return name
+    return VIRTUAL_CHOICE if VIRTUAL_CHOICE in names else None
+
+
+class SwitchableOut:
+    """A MIDI output whose port can be changed while the engine is running."""
+
+    def __init__(self):
+        self._port = None
+        self.name = ""
+        self._lock = threading.Lock()
+
+    def open(self, wanted: str) -> str:
+        """Open ``wanted`` (substring ok, or VIRTUAL_CHOICE); "" closes. Returns the port name opened."""
+        new, label = None, ""
+        if wanted == VIRTUAL_CHOICE:
+            new, label = mido.open_output(VIRTUAL_PORT_NAME, virtual=True), VIRTUAL_CHOICE
+        elif wanted:
+            port = find_port(output_names(), wanted)
+            if not port:
+                raise ValueError(f"MIDI output '{wanted}' not found")
+            new, label = mido.open_output(port), port
+        with self._lock:
+            old, self._port, self.name = self._port, new, label
+        if old:
+            old.close()
+        return label
+
+    def send(self, msg: mido.Message) -> None:
+        port = self._port
+        if port is not None:
+            port.send(msg)
+
+    def close(self) -> None:
+        self.open("")
 
 
 class ClockFollower:
@@ -68,9 +122,9 @@ class ClockFollower:
     """
 
     def __init__(self, engine: Engine, port_name: str, on_cc: Callable[[int, int], None]):
-        port = find_port(mido.get_input_names(), port_name)
+        port = find_port(input_names(), port_name)
         if not port:
-            raise SystemExit(f"MIDI input '{port_name}' not found. Available: {mido.get_input_names()}")
+            raise ValueError(f"MIDI input '{port_name}' not found")
         self.engine = engine
         self.on_cc = on_cc
         self.last_clock = 0.0

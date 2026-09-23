@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  windows-app:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install . pyinstaller
+      - run: pyinstaller packaging/ltb.spec --noconfirm
+
+      - name: Smoke test the app (window opens, engine runs)
+        shell: pwsh
+        run: |
+          $exe = "dist\ListenToTheBroadcast\ListenToTheBroadcast.exe"
+          $p = Start-Process $exe -ArgumentList "--simulate","--dry-run","--http-port","8799","--settings","$env:RUNNER_TEMP\s.json" -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) { throw "app exited early with code $($p.ExitCode)" }
+          $state = Invoke-RestMethod http://127.0.0.1:8799/api/state
+          "bar=$($state.engine.bar) devices=$($state.engine.devices) out=$($state.midi_out)"
+          if ($state.engine.bar -lt 2) { throw "engine clock is not advancing" }
+          $title = (Get-Process -Id $p.Id).MainWindowTitle
+          "window title: '$title'"
+          if ($title -ne "Listen to the Broadcast") { throw "native window did not open" }
+          Stop-Process -Id $p.Id
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\ListenToTheBroadcast -DestinationPath ListenToTheBroadcast-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ListenToTheBroadcast-windows
+          path: ListenToTheBroadcast-windows.zip

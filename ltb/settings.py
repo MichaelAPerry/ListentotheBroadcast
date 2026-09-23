@@ -58,6 +58,8 @@ DEFAULTS: dict[str, Any] = {
     "master_velocity": 1.0,
     "max_notes_per_step": 6,
     "rate_cc": 1,  # CC sent per channel with smoothed traffic intensity, -1 = off
+    "midi_out": "",  # last chosen MIDI output port ("" = auto-detect)
+    "clock_in": "",  # last chosen clock/CC input port ("" = none)
     "routing": {
         k: {
             "enabled": True, "role": r, "channel": ch, "program": pg, "octave": o, "division": d,
@@ -82,6 +84,10 @@ def _num(value: Any, lo: float, hi: float, default: float, integer: bool = False
         return default
     x = max(lo, min(hi, x))
     return int(round(x)) if integer else x
+
+
+def _text(value: Any) -> str:
+    return value[:200] if isinstance(value, str) else ""
 
 
 def _choice(value: Any, options, default):
@@ -109,6 +115,8 @@ def validate(s: dict[str, Any]) -> dict[str, Any]:
         "master_velocity": _num(s.get("master_velocity"), 0, 1.5, d["master_velocity"]),
         "max_notes_per_step": _num(s.get("max_notes_per_step"), 1, 32, d["max_notes_per_step"], True),
         "rate_cc": _num(s.get("rate_cc"), -1, 127, d["rate_cc"], True),
+        "midi_out": _text(s.get("midi_out")),
+        "clock_in": _text(s.get("clock_in")),
     }
     routing_in = s.get("routing")
     routing_in = routing_in if isinstance(routing_in, dict) else {}

@@ -45,6 +45,7 @@ td input[type=range] { min-width: 80px; }
 tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .listen-bad { color: var(--warn); }
 .listen-ok { color: var(--ok); }
+.warn { color: var(--warn) !important; }
 #feed { height: 260px; white-space: pre; overflow-x: hidden; text-overflow: ellipsis; overflow-y: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--muted); }
 #feed div { overflow: hidden; text-overflow: ellipsis; }
 #feed .note { color: var(--accent); }
@@ -75,6 +76,15 @@ tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 </header>
 
 <main>
+  <section>
+    <h2>MIDI</h2>
+    <div class="row"><label for="port-out">Output</label><select id="port-out"></select></div>
+    <div class="row"><label for="port-in">Clock / CC in</label><select id="port-in"></select></div>
+    <p id="port-msg" class="hint"></p>
+    <p><button id="port-refresh">Refresh ports</button></p>
+    <p class="hint">Point your host's MIDI input at the <b>Output</b> port. On Windows, create it once in loopMIDI (or use a Windows MIDI Services loopback). <b>Clock / CC in</b> is optional: a <i>second</i> port that carries the host's MIDI clock and slider CCs back here. Never pick the output port itself.</p>
+  </section>
+
   <section>
     <h2>Beat</h2>
     <div class="row"><label for="sync">Sync</label>
@@ -129,7 +139,7 @@ tr.flash td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   <section>
     <h2>Listeners &amp; host control</h2>
     <div id="listeners" class="cc"></div>
-    <h2 style="margin-top:16px">MIDI CC → slider (from --clock-in port)</h2>
+    <h2 style="margin-top:16px">MIDI CC → slider (from the Clock / CC in port)</h2>
     <div id="ccmap" class="cc"></div>
     <p class="hint">Automate these CCs from your host or a controller to move the sliders during a performance.</p>
     <p><button id="reset">Reset to defaults</button></p>
@@ -286,7 +296,8 @@ function onMessage(m) {
     $("#st-chord").textContent = e.chord_root;
     $("#st-devices").textContent = e.devices;
     $("#st-notes").textContent = e.active_notes;
-    $("#st-out").textContent = m.midi_out;
+    $("#st-out").textContent = m.midi_out || "none";
+    $("#st-out").classList.toggle("warn", !m.midi_out);
     const c = m.clock_in;
     $("#st-clock").innerHTML = c ? `clock in <b>${c.receiving_clock ? c.bpm + " bpm" : "waiting…"}</b>` : "";
     for (const [k, v] of Object.entries(e.activity)) {
@@ -298,9 +309,32 @@ function onMessage(m) {
   }
 }
 
+function renderPorts(p) {
+  const out = $("#port-out"), inp = $("#port-in");
+  out.innerHTML = ""; inp.innerHTML = "";
+  if (p.dry_run) {
+    out.add(new Option("dry run (console)", "")); out.disabled = true;
+  } else {
+    out.add(new Option(p.outputs.length ? "— choose —" : "— no ports found —", ""));
+    p.outputs.forEach(n => out.add(new Option(n, n)));
+    if (p.midi_out && !p.outputs.includes(p.midi_out)) out.add(new Option(p.midi_out, p.midi_out));
+    out.value = p.midi_out;
+  }
+  inp.add(new Option("none (use internal tempo)", ""));
+  p.inputs.forEach(n => inp.add(new Option(n, n)));
+  inp.value = p.clock_in;
+  const msg = $("#port-msg");
+  msg.textContent = p.error || (!p.dry_run && !p.midi_out ? "No MIDI output selected: nothing will reach your host." : "");
+  msg.classList.toggle("warn", !!msg.textContent);
+}
+function loadPorts() { fetch("/api/ports").then(r => r.json()).then(renderPorts); }
+$("#port-out").onchange = e => post("/api/ports", { midi_out: e.target.value }).then(renderPorts);
+$("#port-in").onchange = e => post("/api/ports", { clock_in: e.target.value }).then(renderPorts);
+$("#port-refresh").onclick = loadPorts;
+
 Promise.all([fetch("/api/meta").then(r => r.json()), fetch("/api/state").then(r => r.json())]).then(([m, st]) => {
   meta = m; settings = st.settings;
-  buildStatic(); render();
+  buildStatic(); render(); loadPorts();
   const es = new EventSource("/api/feed");
   es.onmessage = ev => onMessage(JSON.parse(ev.data));
 });

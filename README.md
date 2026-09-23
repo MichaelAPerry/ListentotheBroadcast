@@ -16,36 +16,40 @@ This tool listens to that broadcast chatter and turns it into beat-synced, scale
 - **Each traffic type gets its own sound.** Every type has its own MIDI channel, program, role (note/chord/pad/bass/hit), rhythm, length, velocity, density cap and chance.
 - **Every device has its own note.** Each device on your network gets a stable scale degree, so you learn to hear your printer.
 
-## Quick start
+## Quick start (Windows app, no Python needed)
+
+1. **One-time:** install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and create a port named `LTB`. If you're on Windows 11 with Windows MIDI Services, its built-in *loopback* ports work too; skip loopMIDI.
+2. Download `ListenToTheBroadcast-windows.zip` from the latest successful **build** run under this repo's *Actions* tab. Unzip it anywhere and double-click `ListenToTheBroadcast.exe`.
+   - The app is unsigned, so Windows SmartScreen will warn you: choose *More info → Run anyway*.
+   - Windows Firewall will ask whether it may receive network traffic: allow **private** networks.
+3. The control window opens and picks the `LTB` port automatically. You can change the port in the **MIDI** box, and the app remembers your choice.
+4. In VSTHost (or any host), set the MIDI input to `LTB`, then load one instrument per channel (see below).
+
+Settings save automatically to `%APPDATA%\ListenToTheBroadcast\settings.json`.
+
+### From source (any OS)
 
 ```sh
-pip install -e .          # or: pip install mido python-rtmidi
+pip install -e .          # mido, python-rtmidi, pywebview (Windows/macOS)
 python -m ltb --simulate  # fake traffic, to hear it straight away
 python -m ltb             # the real network
 ```
 
-The control panel opens at <http://127.0.0.1:8765/>. Settings save automatically to `ltb-settings.json`.
-
 Other useful flags:
-- `python -m ltb --list-ports` lists MIDI ports.
+- `--browser` shows the panel in a browser tab instead of a window.
+- `--headless` shows no UI; the panel is still at <http://127.0.0.1:8765/>.
+- `--list-ports` lists MIDI ports.
 - `--dry-run` prints notes instead of sending MIDI.
-- `--interface 192.168.1.20` picks which network card to listen on, if you have several.
+- `--interface 192.168.1.20` picks which network card to listen on.
 
-### MIDI output by platform
+On macOS and Linux, the app offers its own virtual MIDI port ("Listen to the Broadcast"), so no loopMIDI is needed. On Linux, the window needs `pip install pywebview[qt]`; otherwise the panel opens in your browser.
 
-| OS | What to do |
-|---|---|
-| **Windows** | Install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) (or use Windows MIDI Services loopback) and create a port named e.g. `LTB`. Then run `python -m ltb --out LTB`. |
-| **macOS** | Just run `python -m ltb`. It creates a virtual port called "Listen to the Broadcast". (Or enable the IAC Driver and pass `--out "IAC"`.) |
-| **Linux** | Just run `python -m ltb`. It creates an ALSA virtual port. |
-
-On first run, Windows Firewall asks whether Python may receive network traffic. Allow it on **private** networks. Some ports may show as "unavailable" in the panel's listener list, typically NetBIOS on Windows, or ports below 1024 on Linux without privileges. That's fine: every other traffic type keeps working.
+Some ports may show as "unavailable" in the panel's listener list, typically NetBIOS on Windows, or ports below 1024 on Linux without privileges. That's fine: every other traffic type keeps working.
 
 ## Using it with VSTHost (or any host)
 
-1. Start the engine: `python -m ltb --out LTB`.
-2. In the host, choose the `LTB` loopMIDI port as a **MIDI input**.
-3. Load one instrument per traffic type and set each instrument's **MIDI channel filter** to match the channel in the panel's *Traffic → Sound* table. The defaults are:
+1. In the host, choose the `LTB` port as a **MIDI input**.
+2. Load one instrument per traffic type and set each instrument's **MIDI channel filter** to match the channel in the *Traffic → Sound* table. The defaults are:
 
    | Channel | Traffic type | Role | Good sound |
    |---|---|---|---|
@@ -57,17 +61,17 @@ On first run, Windows Firewall asks whether Python may receive network traffic. 
    | 6 | NetBIOS | bass | sub bass |
    | 10 | LAN sync beacons | hit | drums or percussion, fixed note 42 |
 
-4. With a multi-timbral or General MIDI synth, you can put everything on one instance and use the **Program** column to choose each patch.
-5. Add reverb and delay generously. This is ambient music.
+3. With a multi-timbral or General MIDI synth, you can put everything on one instance and use the **Program** column to choose each patch.
+4. Add reverb and delay generously. This is ambient music.
 
 ### Beat sync with the host
 
 - **Internal (default):** set *Tempo* in the panel to match the host.
-- **Host MIDI clock:** first create a *second* loopMIDI port (e.g. `LTB Clock`) and have the host send MIDI clock (and Start/Stop) to it. Then run `python -m ltb --out LTB --clock-in "LTB Clock"` and set *Sync* to **Host MIDI clock**. After that, the host's play/stop and tempo drive everything, and pressing Play restarts at bar 1. The header shows the tempo it's receiving.
+- **Host MIDI clock:** first create a *second* loopMIDI port (e.g. `LTB Clock`) and have the host send MIDI clock (and Start/Stop) to it. Then pick that port as **Clock / CC in** in the app's MIDI box and set *Sync* to **Host MIDI clock**. After that, the host's play/stop and tempo drive everything, and pressing Play restarts at bar 1. The header shows the tempo it's receiving.
 
 ### Controlling the sliders from the host
 
-Send MIDI CC on the `--clock-in` port to move the panel's sliders. That lets you automate them from host automation lanes or a hardware controller:
+Send MIDI CC on the **Clock / CC in** port to move the panel's sliders. That lets you automate them from host automation lanes or a hardware controller:
 
 | CC | Slider |
 |---|---|
@@ -104,4 +108,7 @@ The design reasoning and prior art are in [docs/architecture-evaluation.md](docs
 ```sh
 pip install -e ".[dev]"
 pytest
+pip install pyinstaller && pyinstaller packaging/ltb.spec --noconfirm   # app bundle in dist/
 ```
+
+CI (`.github/workflows/build.yml`) runs the tests on Windows, macOS and Linux. It then builds the Windows app and smoke-tests it: the window must open and the clock must advance. The zip is uploaded as a workflow artifact.
