@@ -28,9 +28,13 @@ jobs:
         run: |
           Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip -OutFile pluginval.zip
           Expand-Archive pluginval.zip -DestinationPath pluginval
-          # Out-of-process, so a crash is reported with a stack trace instead of killing the validator.
-          .\pluginval\pluginval.exe --strictness-level 10 --verbose --output-dir pluginval-logs --validate "build\ListenToTheBroadcast_artefacts\Release\VST3\Listen to the Broadcast.vst3"
-          if ($LASTEXITCODE -ne 0) { throw "pluginval failed" }
+          # pluginval.exe is a GUI-subsystem program: PowerShell won't wait for it (or get its exit
+          # code) unless started with -Wait. Out-of-process so a crash would come back with a stack trace.
+          $args = '--strictness-level 10 --output-dir pluginval-logs --validate "build\ListenToTheBroadcast_artefacts\Release\VST3\Listen to the Broadcast.vst3"'
+          $p = Start-Process -FilePath .\pluginval\pluginval.exe -ArgumentList $args -Wait -PassThru -NoNewWindow
+          Get-ChildItem pluginval-logs -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
+          "pluginval exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "pluginval failed" }
 
       - uses: actions/upload-artifact@v4
         if: always()
