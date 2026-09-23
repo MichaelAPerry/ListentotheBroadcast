@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a GitHub Release with this tag (e.g. v1.0.0) after the build passes. Leave empty to just build."
+        required: false
+        default: ""
 
 permissions:
-  contents: write # only used to attach files to a Release when a v* tag is pushed
+  contents: write # only used to create a Release (v* tag pushed, or release_tag given on a manual run)
 
 jobs:
   windows:
@@ -66,11 +71,28 @@ jobs:
             ListenToTheBroadcast-VST3-Windows.zip
             ListenToTheBroadcast-VST3-Windows.zip.sha256
 
-      # Pushing a tag like v1.0.0 publishes a GitHub Release with the zip and its checksum.
+      # A GitHub Release with the zip and its checksum: either push a tag like v1.0.0, or run this
+      # workflow manually with release_tag set (the tag is then created on the commit that was built).
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Listen to the Broadcast ${{ inputs.release_tag || github.ref_name }}
+          body: |
+            **Listen to the Broadcast** - an ambient VST3 instrument that plays your local network's broadcast traffic.
+
+            **Install (Windows):** download `ListenToTheBroadcast-VST3-Windows.zip`, unzip it, copy the
+            `Listen to the Broadcast.vst3` folder into `C:\Program Files\Common Files\VST3\`, rescan plugins in
+            VSTHost or your DAW, and load it as an instrument. Allow your host through Windows Firewall on
+            private networks, then press **Test sound**.
+
+            The plugin is not code-signed yet, so SmartScreen or Defender may warn about it. Compare the zip
+            against `ListenToTheBroadcast-VST3-Windows.zip.sha256`; see the README section
+            ["Windows flagged it as a virus"](https://github.com/${{ github.repository }}#windows-flagged-it-as-a-virus).
+
+            Built by GitHub Actions from commit ${{ github.sha }}; tests and pluginval (strictness 10) passed on Windows.
           files: |
             ListenToTheBroadcast-VST3-Windows.zip
             ListenToTheBroadcast-VST3-Windows.zip.sha256
